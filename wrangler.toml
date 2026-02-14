@@ -3,10 +3,3 @@ type = "javascript"
 
 # Cloudflare Pages - Next.js Configuration
 pages_build_output_dir = ".next/public"
-
-# Build configuration for Cloudflare Pages
-[build]
-command = "npm run build"
-cwd = "./"
-watch_paths = ["src/**/*.tsx", "src/**/*.ts", "public/**/*"]
-
