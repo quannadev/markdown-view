@@ -133,3 +133,25 @@ article th {
   background-color: #f9fafb;
   font-weight: bold;
 }
+
+/* JSON tree view */
+.json-key {
+  color: #7c3aed;
+}
+
+.json-value-string {
+  color: #059669;
+}
+
+.json-value-number {
+  color: #2563eb;
+}
+
+.json-value-boolean {
+  color: #d97706;
+}
+
+.json-value-null {
+  color: #9ca3af;
+  font-style: italic;
+}

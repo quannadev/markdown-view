@@ -18,22 +18,24 @@ const APP_URL = "https://mdview.quanna.dev";
 
 export const metadata: Metadata = {
   title: {
-    default: "MDView - Online Markdown Viewer & Editor | Live Preview & PDF Export",
+    default: "MDView - Markdown & JSON Viewer | Live Preview, Tree View & TOON Export",
     template: "%s | MDView",
   },
   description:
-    "Free online Markdown viewer and editor with live preview, syntax highlighting, PDF export, and local storage. Paste or type Markdown and see rendered HTML instantly. No signup required.",
+    "Free online Markdown viewer, JSON formatter & TOON converter. Live preview, PDF export, JSON tree view, and JSON-to-TOON conversion for AI prompts. No signup required.",
   keywords: [
     "markdown viewer",
     "markdown editor",
+    "json viewer",
+    "json formatter",
+    "json tree view",
+    "json to toon",
+    "toon format",
     "online markdown",
     "markdown preview",
     "markdown to html",
     "markdown to pdf",
-    "markdown renderer",
-    "live markdown preview",
     "free markdown editor",
-    "markdown parser",
     "md viewer",
     "mdview",
   ],
@@ -42,9 +44,9 @@ export const metadata: Metadata = {
     canonical: "/",
   },
   openGraph: {
-    title: "MDView - Online Markdown Viewer & Editor",
+    title: "MDView - Markdown & JSON Viewer | TOON Export",
     description:
-      "Free online Markdown viewer with live preview, syntax highlighting, and PDF export. No signup required.",
+      "Free online Markdown viewer, JSON formatter & TOON converter. Live preview, PDF export, tree view. No signup required.",
     url: APP_URL,
     siteName: "MDView",
     locale: "vi_VN",
@@ -52,9 +54,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "MDView - Online Markdown Viewer & Editor",
+    title: "MDView - Markdown & JSON Viewer | TOON Export",
     description:
-      "Free online Markdown viewer with live preview, syntax highlighting, and PDF export.",
+      "Free online Markdown viewer, JSON formatter & TOON converter. Live preview, PDF export, tree view.",
   },
   robots: {
     index: true,
@@ -89,7 +91,7 @@ export default function RootLayout({
               name: "MDView",
               url: APP_URL,
               description:
-                "Free online Markdown viewer and editor with live preview, syntax highlighting, and PDF export.",
+                "Free online Markdown viewer, JSON formatter and TOON converter with live preview and PDF export.",
               applicationCategory: "DeveloperApplication",
               operatingSystem: "All",
               offers: {

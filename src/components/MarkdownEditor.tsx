@@ -12,8 +12,12 @@ import {
   setCurrentDocument,
   StoredDocument,
 } from '@/lib/storage';
+import JsonViewer from './JsonViewer';
+
+type AppMode = 'markdown' | 'json';
 
 export default function MarkdownEditor() {
+  const [mode, setMode] = useState<AppMode>('markdown');
   const [markdown, setMarkdown] = useState('');
   const [documentName, setDocumentName] = useState('Untitled');
   const [currentDocId, setCurrentDocId] = useState<string | null>(null);
@@ -163,12 +167,30 @@ export default function MarkdownEditor() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-gradient-to-r from-blue-600 to-purple-600 border-b-4 border-blue-800 sticky top-0 z-50 shadow-lg">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-          <h1 className="text-4xl font-black text-white drop-shadow">📝 Markdown View</h1>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+          <h1 className="text-3xl font-black text-white drop-shadow">MDView</h1>
+          <div className="flex gap-1 bg-white/10 rounded-lg p-1">
+            {(['markdown', 'json'] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setMode(tab)}
+                className={`px-4 py-1.5 rounded-md font-bold text-sm transition ${
+                  mode === tab
+                    ? 'bg-white text-purple-700 shadow'
+                    : 'text-white/80 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                {tab === 'markdown' ? 'Markdown' : 'JSON'}
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 
       <main className="w-full bg-gray-50 py-8">
+        {mode === 'json' ? (
+          <JsonViewer />
+        ) : (
         <div className="w-full px-4 sm:px-6 lg:px-8">
           {/* Editor and Preview */}
           <div
@@ -256,6 +278,7 @@ export default function MarkdownEditor() {
             )}
           </div>
         </div>
+        )}
       </main>
 
       {/* Fullscreen Preview Modal */}
