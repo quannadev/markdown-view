@@ -34,8 +34,9 @@ export function autoFormat(content: string): string {
   // Convert escaped newlines to actual newlines
   formatted = formatted.replace(/\\n/g, '\n');
 
-  // Normalize line endings
+  // Normalize line endings (handle \r\n, \r, and \n)
   formatted = formatted.replace(/\r\n/g, '\n');
+  formatted = formatted.replace(/\r/g, '\n');
 
   // Split into lines for processing
   let lines = formatted.split('\n');

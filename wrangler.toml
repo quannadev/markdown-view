@@ -10,14 +10,3 @@ command = "npm run build"
 cwd = "./"
 watch_paths = ["src/**/*.tsx", "src/**/*.ts", "public/**/*"]
 
-[env.production]
-name = "mdview-production"
-routes = [
-  { pattern = "*.png", zone_name = "example.com" },
-  { pattern = "*.jpg", zone_name = "example.com" },
-  { pattern = "*.gif", zone_name = "example.com" },
-  { pattern = "*.svg", zone_name = "example.com" },
-  { pattern = "*.css", zone_name = "example.com" },
-  { pattern = "*.js", zone_name = "example.com" }
-]
-

@@ -24,6 +24,7 @@ export default function MarkdownEditor() {
   const [isNewDocument, setIsNewDocument] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [formatType, setFormatType] = useState<'markdown' | 'html' | 'text'>('markdown');
+  const [isCopied, setIsCopied] = useState(false);
 
   // Load documents from storage
   useEffect(() => {
@@ -112,6 +113,22 @@ export default function MarkdownEditor() {
     }
   }, [markdown, documentName]);
 
+  const handleCopyMarkdown = useCallback(async () => {
+    if (!markdown.trim()) {
+      alert('Nothing to copy');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(markdown);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (error) {
+      console.error('Error copying to clipboard:', error);
+      alert('Failed to copy');
+    }
+  }, [markdown]);
+
   const handleNewDocument = useCallback(() => {
     setMarkdown('');
     setDocumentName(`Untitled-${Date.now()}`);
@@ -199,6 +216,16 @@ export default function MarkdownEditor() {
                   <h3 className="text-sm font-bold text-white">📄 Preview</h3>
                   <div className="flex gap-2">
                     <button
+                      onClick={handleCopyMarkdown}
+                      className={`px-3 py-1 rounded font-bold transition transform hover:scale-105 active:scale-95 text-xs ${
+                        isCopied
+                          ? 'bg-green-500 text-white'
+                          : 'bg-purple-500 hover:bg-purple-600 text-white'
+                      }`}
+                    >
+                      {isCopied ? '✓ Copied' : '📋 Copy'}
+                    </button>
+                    <button
                       onClick={handleSaveDocument}
                       disabled={isSaving}
                       className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white rounded font-bold transition transform hover:scale-105 active:scale-95 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
@@ -237,6 +264,16 @@ export default function MarkdownEditor() {
           <div className="sticky top-0 z-50 bg-gradient-to-r from-green-600 to-green-700 border-b-4 border-green-800 px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center shadow-lg">
             <h2 className="text-2xl font-bold text-white">📄 Full Preview</h2>
             <div className="flex gap-2">
+              <button
+                onClick={handleCopyMarkdown}
+                className={`px-4 py-2 rounded-lg font-bold transition transform hover:scale-105 active:scale-95 ${
+                  isCopied
+                    ? 'bg-green-500 text-white'
+                    : 'bg-purple-500 hover:bg-purple-600 text-white'
+                }`}
+              >
+                {isCopied ? '✓ Copied' : '📋 Copy'}
+              </button>
               <button
                 onClick={handleExportPDF}
                 className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-bold transition transform hover:scale-105 active:scale-95"
