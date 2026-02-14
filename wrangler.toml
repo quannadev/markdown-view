@@ -2,4 +2,4 @@ name = "mdview"
 type = "javascript"
 
 # Cloudflare Pages - Next.js Configuration
-pages_build_output_dir = ".next/public"
+pages_build_output_dir = "out"
