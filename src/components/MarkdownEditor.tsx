@@ -12,7 +12,6 @@ import {
   setCurrentDocument,
   StoredDocument,
 } from '@/lib/storage';
-import { exportPDF } from '@/lib/pdf';
 
 export default function MarkdownEditor() {
   const [markdown, setMarkdown] = useState('');
@@ -104,6 +103,7 @@ export default function MarkdownEditor() {
     }
 
     try {
+      const { exportPDF } = await import('@/lib/pdf');
       const htmlContent = parseMarkdown(markdown);
       const filename = documentName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
       await exportPDF(filename, htmlContent, documentName);

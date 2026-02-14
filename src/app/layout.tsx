@@ -4,14 +4,14 @@ import "./globals.css";
 
 const inter = Inter({
   variable: "--font-inter",
-  subsets: ["latin", "latin-ext", "vietnamese"],
-  weight: ["400", "500", "600", "700", "800", "900"],
+  subsets: ["latin", "vietnamese"],
+  weight: ["400", "600", "700"],
 });
 
 const robotoMono = Roboto_Mono({
   variable: "--font-roboto-mono",
-  subsets: ["latin", "latin-ext"],
-  weight: ["400", "500", "700"],
+  subsets: ["latin"],
+  weight: ["400"],
 });
 
 const APP_URL = "https://mdview.quanna.dev";
