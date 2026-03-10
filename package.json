@@ -4,7 +4,6 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "postinstall": "mkdir -p public/wasm && cp node_modules/@kreuzberg/wasm/dist/pkg/kreuzberg_wasm_bg.wasm public/wasm/",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",

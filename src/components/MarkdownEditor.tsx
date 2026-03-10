@@ -265,7 +265,8 @@ export default function MarkdownEditor() {
         const data = new Uint8Array(buffer);
         const mimeType = file.type || 'text/plain';
         
-        const result = await runWorker<string>('KREUZBERG_EXTRACT', { data, mimeType, fileName: file.name });
+        const { extractFile } = await import('@/lib/extract');
+        const result = await extractFile(data, mimeType, file.name);
         setMarkdown(result);
         setDocumentName(file.name);
         setCurrentDocId(null);
@@ -279,7 +280,7 @@ export default function MarkdownEditor() {
     };
     reader.readAsArrayBuffer(file);
     if (fileRef.current) fileRef.current.value = '';
-  }, [runWorker]);
+  }, []);
 
   const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const textarea = e.currentTarget;
@@ -324,7 +325,8 @@ export default function MarkdownEditor() {
     if (fileData && mimeType) {
       setIsProcessing(true);
       try {
-        const result = await runWorker<string>('KREUZBERG_EXTRACT', { data: fileData, mimeType });
+        const { extractFile } = await import('@/lib/extract');
+        const result = await extractFile(fileData, mimeType);
         insertText(result);
       } catch (err) {
         console.error(err);
@@ -334,8 +336,9 @@ export default function MarkdownEditor() {
     } else if (contentToExtract && mimeType) {
       setIsProcessing(true);
       try {
+        const { extractFile } = await import('@/lib/extract');
         const data = new TextEncoder().encode(contentToExtract);
-        const result = await runWorker<string>('KREUZBERG_EXTRACT', { data, mimeType });
+        const result = await extractFile(data, mimeType);
         insertText(result);
       } catch (err) {
         console.error(err);
@@ -344,12 +347,9 @@ export default function MarkdownEditor() {
         setIsProcessing(false);
       }
     } else if (!fileData && !contentToExtract) {
-      // Default text paste - let it happen normally but format afterwards if needed
-      // To avoid interfering with native undo stack for normal text, we just let it paste natively
-      // If we want to auto-format, we should do it cautiously.
-      // We will let the default paste happen without preventDefault.
+      // Default text paste - let it happen normally
     }
-  }, [runWorker]);
+  }, []);
 
   const handleSaveDocument = useCallback(async () => {
     if (!markdown.trim()) {
