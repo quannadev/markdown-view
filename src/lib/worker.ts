@@ -1,4 +1,4 @@
-import { formatJson, jsonToToon, buildTree } from '@/lib/json';
+import { formatJson, jsonToToon, jsonToMarkdown, buildTree } from '@/lib/json';
 import { parseMarkdown, autoFormat } from '@/lib/markdown';
 
 self.addEventListener('message', async (e) => {
@@ -18,6 +18,9 @@ self.addEventListener('message', async (e) => {
         break;
       case 'JSON_TREE':
         result = buildTree(payload);
+        break;
+      case 'JSON_TO_MD':
+        result = jsonToMarkdown(payload);
         break;
       case 'MD_PARSE':
         result = parseMarkdown(payload.content, payload.format);

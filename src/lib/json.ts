@@ -174,6 +174,98 @@ function encodeObject(obj: Record<string, unknown>, depth: number): string {
   return lines.join('\n');
 }
 
+// --- JSON to Markdown converter ---
+
+export function jsonToMarkdown(input: string): string {
+  const parsed = JSON.parse(input);
+  return convertToMarkdown(parsed, 0).trimEnd();
+}
+
+function convertToMarkdown(value: unknown, depth: number): string {
+  if (value === null || value === undefined) return '_null_\n';
+  if (typeof value === 'string') return value + '\n';
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value) + '\n';
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '_empty array_\n';
+
+    // Array of objects with same keys → markdown table
+    if (isMarkdownTabular(value)) {
+      return arrayToTable(value as Record<string, unknown>[]);
+    }
+
+    // Array of primitives → bullet list
+    if (value.every(v => v === null || typeof v !== 'object')) {
+      return value.map(v => `- ${formatPrimitive(v)}`).join('\n') + '\n';
+    }
+
+    // Mixed array → numbered items
+    const parts: string[] = [];
+    value.forEach((item, i) => {
+      if (item === null || typeof item !== 'object') {
+        parts.push(`${i + 1}. ${formatPrimitive(item)}`);
+      } else {
+        parts.push(`${i + 1}. **Item ${i + 1}**`);
+        parts.push(convertToMarkdown(item, depth + 1).trimEnd());
+      }
+    });
+    return parts.join('\n') + '\n';
+  }
+
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return '_empty object_\n';
+
+    const parts: string[] = [];
+    for (const [key, val] of entries) {
+      if (val === null || typeof val !== 'object') {
+        parts.push(`- **${key}**: ${formatPrimitive(val)}`);
+      } else if (Array.isArray(val) && isMarkdownTabular(val)) {
+        const heading = depth < 4 ? '#'.repeat(depth + 2) : '**';
+        const headingEnd = depth < 4 ? '' : '**';
+        parts.push(`\n${heading} ${key}${headingEnd}\n`);
+        parts.push(arrayToTable(val as Record<string, unknown>[]).trimEnd());
+      } else if (Array.isArray(val) && val.every(v => v === null || typeof v !== 'object')) {
+        parts.push(`- **${key}**: ${val.map(formatPrimitive).join(', ')}`);
+      } else {
+        const heading = depth < 4 ? '#'.repeat(depth + 2) : '**';
+        const headingEnd = depth < 4 ? '' : '**';
+        parts.push(`\n${heading} ${key}${headingEnd}\n`);
+        parts.push(convertToMarkdown(val, depth + 1).trimEnd());
+      }
+    }
+    return parts.join('\n') + '\n';
+  }
+
+  return String(value) + '\n';
+}
+
+function isMarkdownTabular(arr: unknown[]): boolean {
+  if (arr.length === 0) return false;
+  if (!arr.every(item => item !== null && typeof item === 'object' && !Array.isArray(item))) return false;
+  const firstKeys = Object.keys(arr[0] as Record<string, unknown>).join(',');
+  return firstKeys.length > 0 && arr.every(item => {
+    const obj = item as Record<string, unknown>;
+    return Object.keys(obj).join(',') === firstKeys;
+  });
+}
+
+function arrayToTable(arr: Record<string, unknown>[]): string {
+  const keys = Object.keys(arr[0]);
+  const header = '| ' + keys.join(' | ') + ' |';
+  const separator = '| ' + keys.map(() => '---').join(' | ') + ' |';
+  const rows = arr.map(obj =>
+    '| ' + keys.map(k => formatPrimitive(obj[k])).join(' | ') + ' |'
+  );
+  return [header, separator, ...rows].join('\n') + '\n';
+}
+
+function formatPrimitive(val: unknown): string {
+  if (val === null || val === undefined) return '_null_';
+  if (typeof val === 'string') return val;
+  return String(val);
+}
+
 // --- Tree utilities ---
 
 export interface TreeNode {

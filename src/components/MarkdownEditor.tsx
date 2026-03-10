@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParseWorker } from '@/hooks/useParseWorker';
 import {
-  saveDocument,
   updateDocument,
   getDocuments,
   getDocument,
@@ -12,9 +11,10 @@ import {
   setCurrentDocument,
   StoredDocument,
 } from '@/lib/storage';
-import JsonViewer from './JsonViewer';
+import { TreeNode } from '@/lib/json';
 
-type AppMode = 'markdown' | 'json' | 'api';
+type AppMode = 'editor' | 'api';
+type OutputTab = 'formatted' | 'tree' | 'toon' | 'md';
 
 const BASE = 'https://mdview.quanna.dev';
 
@@ -41,6 +41,43 @@ const API_EXAMPLES: { label: string; url: string; desc: string }[] = [
   },
 ];
 
+function TreeNodeView({ node, depth = 0 }: { node: TreeNode; depth?: number }) {
+  const [expanded, setExpanded] = useState(depth < 2);
+  const hasChildren = node.children && node.children.length > 0;
+
+  return (
+    <div style={{ paddingLeft: depth > 0 ? 16 : 0 }}>
+      <div
+        className={`flex items-start gap-1 py-0.5 ${hasChildren ? 'cursor-pointer hover:bg-gray-100 rounded' : ''}`}
+        onClick={hasChildren ? () => setExpanded(!expanded) : undefined}
+      >
+        {hasChildren && (
+          <span className="text-gray-400 w-4 text-center flex-shrink-0 select-none">
+            {expanded ? '▼' : '▶'}
+          </span>
+        )}
+        {!hasChildren && <span className="w-4 flex-shrink-0" />}
+        <span className="json-key font-semibold">{node.key}</span>
+        <span className="text-gray-400 mx-0.5">:</span>
+        {hasChildren ? (
+          <span className="text-gray-500 text-xs">{String(node.value)}</span>
+        ) : (
+          <span className={`json-value-${node.type}`}>
+            {node.type === 'string' ? `"${String(node.value)}"` : String(node.value)}
+          </span>
+        )}
+      </div>
+      {hasChildren && expanded && (
+        <div>
+          {node.children!.map((child, i) => (
+            <TreeNodeView key={`${child.key}-${i}`} node={child} depth={depth + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ApiDocs() {
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8">
@@ -54,7 +91,6 @@ function ApiDocs() {
           </div>
 
           <div className="p-6 space-y-6">
-            {/* Usage */}
             <section>
               <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">Usage</h3>
               <div className="bg-gray-900 rounded-lg p-4 font-mono text-sm text-gray-100 overflow-x-auto">
@@ -62,7 +98,6 @@ function ApiDocs() {
               </div>
             </section>
 
-            {/* Params */}
             <section>
               <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">Parameters</h3>
               <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -95,7 +130,6 @@ function ApiDocs() {
               </div>
             </section>
 
-            {/* Formats */}
             <section>
               <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">Formats</h3>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -113,7 +147,6 @@ function ApiDocs() {
               </div>
             </section>
 
-            {/* Note */}
             <section className="bg-amber-50 border border-amber-200 rounded-lg p-4">
               <p className="text-amber-800 text-sm">
                 <strong>Note:</strong> Special characters must be URL-encoded. Use{' '}
@@ -127,7 +160,6 @@ function ApiDocs() {
               </p>
             </section>
 
-            {/* Try it */}
             <section>
               <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">Try it</h3>
               <div className="space-y-3">
@@ -153,7 +185,6 @@ function ApiDocs() {
               </div>
             </section>
 
-            {/* JavaScript Example */}
             <section>
               <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">JavaScript Example</h3>
               <pre className="bg-gray-900 rounded-lg p-4 font-mono text-sm text-gray-100 overflow-x-auto">{`const content = encodeURIComponent(JSON.stringify({
@@ -175,7 +206,7 @@ window.open(\`${BASE}/?content=\${content}&format=toon\`);`}</pre>
 }
 
 export default function MarkdownEditor() {
-  const [mode, setMode] = useState<AppMode>('markdown');
+  const [mode, setMode] = useState<AppMode>('editor');
   const [markdown, setMarkdown] = useState('');
   const [htmlPreview, setHtmlPreview] = useState('');
   const [documentName, setDocumentName] = useState('Untitled');
@@ -184,11 +215,31 @@ export default function MarkdownEditor() {
   const [showPreview, setShowPreview] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isNewDocument, setIsNewDocument] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [formatType, setFormatType] = useState<'markdown' | 'html' | 'text'>('markdown');
   const [isCopied, setIsCopied] = useState(false);
+  const [outputTab, setOutputTab] = useState<OutputTab>('md');
   const runWorker = useParseWorker();
+
+  // JSON-specific state
+  const [parsedJson, setParsedJson] = useState<any>(null);
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const [treeData, setTreeData] = useState<TreeNode | null>(null);
+  const [toonOutput, setToonOutput] = useState<string>('');
+  const [mdFromJson, setMdFromJson] = useState<string>('');
+  const [mdFromJsonHtml, setMdFromJsonHtml] = useState<string>('');
+
+  // Auto-detect if content is valid JSON
+  const isJsonContent = useMemo(() => {
+    const trimmed = markdown.trim();
+    if (!trimmed) return false;
+    if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return false;
+    try {
+      JSON.parse(trimmed);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [markdown]);
 
   // Load documents from storage
   useEffect(() => {
@@ -207,16 +258,16 @@ export default function MarkdownEditor() {
     }
   }, []);
 
-  // Update preview via worker
+  // Update markdown preview (for non-JSON content on 'md' tab)
   useEffect(() => {
-    if (!markdown.trim()) {
-      setHtmlPreview('');
+    if (!markdown.trim() || outputTab !== 'md' || isJsonContent) {
+      if (outputTab === 'md' && !isJsonContent) setHtmlPreview('');
       return;
     }
 
     const timer = setTimeout(async () => {
       try {
-        const result = await runWorker<string>('MD_PARSE', { content: markdown, format: formatType });
+        const result = await runWorker<string>('MD_PARSE', { content: markdown, format: 'markdown' });
         setHtmlPreview(result);
       } catch (e) {
         console.error('Markdown parse error:', e);
@@ -224,39 +275,105 @@ export default function MarkdownEditor() {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [markdown, formatType, runWorker]);
+  }, [markdown, outputTab, isJsonContent, runWorker]);
+
+  // Parse JSON when content is JSON
+  useEffect(() => {
+    if (!isJsonContent) {
+      setParsedJson(null);
+      setJsonError(null);
+      setToonOutput('');
+      setTreeData(null);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const result = await runWorker<any>('JSON_PARSE', markdown);
+        setParsedJson(result);
+        setJsonError(null);
+      } catch (e: any) {
+        setJsonError(e.message);
+        setParsedJson(null);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [markdown, isJsonContent, runWorker]);
+
+  // Build tree data when needed
+  useEffect(() => {
+    if (outputTab === 'tree' && parsedJson) {
+      runWorker<TreeNode>('JSON_TREE', parsedJson).then(setTreeData);
+    }
+  }, [outputTab, parsedJson, runWorker]);
+
+  // Build TOON output when needed
+  useEffect(() => {
+    if (outputTab === 'toon' && parsedJson) {
+      runWorker<string>('JSON_TO_TOON', markdown).then(setToonOutput).catch(() => setToonOutput(''));
+    }
+  }, [outputTab, parsedJson, markdown, runWorker]);
+
+  // Build Markdown from JSON when needed
+  useEffect(() => {
+    if (outputTab === 'md' && parsedJson) {
+      runWorker<string>('JSON_TO_MD', markdown)
+        .then(async (md) => {
+          setMdFromJson(md);
+          const html = await runWorker<string>('MD_PARSE', { content: md, format: 'markdown' });
+          setMdFromJsonHtml(html);
+        })
+        .catch(() => {
+          setMdFromJson('');
+          setMdFromJsonHtml('');
+        });
+    }
+  }, [outputTab, parsedJson, markdown, runWorker]);
 
   // Auto-save on interval
   useEffect(() => {
     if (!markdown || isNewDocument || !currentDocId) return;
 
     const timer = setTimeout(() => {
-      setIsSaving(true);
       updateDocument(currentDocId, documentName, markdown);
-      setIsSaving(false);
     }, 2000);
 
     return () => clearTimeout(timer);
   }, [markdown, documentName, currentDocId, isNewDocument]);
 
-  const handleAutoFormat = useCallback(async () => {
-    setIsProcessing(true);
-    try {
-      const formatted = await runWorker<string>('MD_FORMAT', markdown);
-      setMarkdown(formatted);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [markdown, runWorker]);
 
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
+
+    // JSON files: read as text and auto-format
+    if (file.name.endsWith('.json') || file.type === 'application/json') {
+      setIsProcessing(true);
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const text = ev.target?.result as string;
+        try {
+          const formatted = await runWorker<string>('JSON_FORMAT', text);
+          setMarkdown(formatted);
+          setJsonError(null);
+        } catch {
+          setMarkdown(text);
+        }
+        setOutputTab('formatted');
+        setDocumentName(file.name);
+        setCurrentDocId(null);
+        setIsNewDocument(true);
+        setIsProcessing(false);
+      };
+      reader.readAsText(file);
+      if (fileRef.current) fileRef.current.value = '';
+      return;
+    }
+
+    // Other files: extract with kreuzberg
     setIsProcessing(true);
     const reader = new FileReader();
     reader.onload = async (ev) => {
@@ -264,10 +381,11 @@ export default function MarkdownEditor() {
         const buffer = ev.target?.result as ArrayBuffer;
         const data = new Uint8Array(buffer);
         const mimeType = file.type || 'text/plain';
-        
+
         const { extractFile } = await import('@/lib/extract');
         const result = await extractFile(data, mimeType, file.name);
         setMarkdown(result);
+        setOutputTab('md');
         setDocumentName(file.name);
         setCurrentDocId(null);
         setIsNewDocument(true);
@@ -280,14 +398,14 @@ export default function MarkdownEditor() {
     };
     reader.readAsArrayBuffer(file);
     if (fileRef.current) fileRef.current.value = '';
-  }, []);
+  }, [runWorker]);
 
   const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const textarea = e.currentTarget;
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const types = e.clipboardData.types;
-    
+
     let mimeType: string | null = null;
     let contentToExtract: string | null = null;
     let fileData: Uint8Array | null = null;
@@ -308,8 +426,17 @@ export default function MarkdownEditor() {
         try {
           JSON.parse(text);
           e.preventDefault();
-          contentToExtract = text;
-          mimeType = 'application/json';
+          // Auto-format JSON and switch to formatted output
+          setIsProcessing(true);
+          try {
+            const formatted = await runWorker<string>('JSON_FORMAT', text);
+            setMarkdown(formatted);
+          } catch {
+            setMarkdown(text);
+          }
+          setOutputTab('formatted');
+          setIsProcessing(false);
+          return;
         } catch {}
       }
     }
@@ -346,36 +473,9 @@ export default function MarkdownEditor() {
       } finally {
         setIsProcessing(false);
       }
-    } else if (!fileData && !contentToExtract) {
-      // Default text paste - let it happen normally
     }
-  }, []);
+  }, [runWorker]);
 
-  const handleSaveDocument = useCallback(async () => {
-    if (!markdown.trim()) {
-      alert('Cannot save empty document');
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      if (isNewDocument) {
-        const doc = saveDocument(documentName, markdown);
-        setCurrentDocId(doc.id);
-        setIsNewDocument(false);
-        setDocuments(getDocuments());
-      } else if (currentDocId) {
-        updateDocument(currentDocId, documentName, markdown);
-        setDocuments(getDocuments());
-      }
-      alert('Document saved successfully!');
-    } catch (error) {
-      console.error('Error saving document:', error);
-      alert('Error saving document');
-    } finally {
-      setIsSaving(false);
-    }
-  }, [markdown, documentName, isNewDocument, currentDocId]);
 
   const handleExportPDF = useCallback(async () => {
     if (!markdown.trim()) {
@@ -384,30 +484,50 @@ export default function MarkdownEditor() {
     }
 
     try {
+      // Generate HTML on demand: for JSON content, convert to markdown first
+      let html: string;
+      if (isJsonContent) {
+        const md = await runWorker<string>('JSON_TO_MD', markdown);
+        html = await runWorker<string>('MD_PARSE', { content: md, format: 'markdown' });
+      } else {
+        html = await runWorker<string>('MD_PARSE', { content: markdown, format: 'markdown' });
+      }
+
       const { exportPDF } = await import('@/lib/pdf');
       const filename = documentName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      await exportPDF(filename, htmlPreview, documentName);
+      await exportPDF(filename, html, documentName);
     } catch (error) {
       console.error('Error exporting PDF:', error);
       alert('Error exporting PDF');
     }
-  }, [htmlPreview, documentName, markdown]);
+  }, [markdown, isJsonContent, documentName, runWorker]);
 
-  const handleCopyMarkdown = useCallback(async () => {
-    if (!markdown.trim()) {
+  const handleCopyOutput = useCallback(async () => {
+    let text = '';
+    if (outputTab === 'formatted' && parsedJson) {
+      text = JSON.stringify(parsedJson, null, 2);
+    } else if (outputTab === 'toon') {
+      text = toonOutput;
+    } else if (outputTab === 'md') {
+      text = mdFromJson;
+    } else {
+      text = markdown;
+    }
+
+    if (!text.trim()) {
       alert('Nothing to copy');
       return;
     }
 
     try {
-      await navigator.clipboard.writeText(markdown);
+      await navigator.clipboard.writeText(text);
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000);
     } catch (error) {
       console.error('Error copying to clipboard:', error);
       alert('Failed to copy');
     }
-  }, [markdown]);
+  }, [markdown, outputTab, parsedJson, toonOutput, mdFromJson]);
 
   const handleNewDocument = useCallback(() => {
     setMarkdown('');
@@ -437,14 +557,88 @@ export default function MarkdownEditor() {
     }
   }, [currentDocId, handleNewDocument]);
 
+  // Available output tabs based on content
+  const availableTabs = useMemo((): { key: OutputTab; label: string }[] => {
+    const tabs: { key: OutputTab; label: string }[] = [
+      { key: 'md', label: 'Markdown' },
+    ];
+    if (isJsonContent) {
+      tabs.push(
+        { key: 'formatted', label: 'Formatted' },
+        { key: 'tree', label: 'Tree' },
+        { key: 'toon', label: 'TOON' },
+      );
+    }
+    return tabs;
+  }, [isJsonContent]);
+
+  const renderOutput = () => {
+    if (outputTab === 'md') {
+      if (isJsonContent) {
+        // JSON → Markdown conversion
+        return mdFromJsonHtml ? (
+          <article
+            className="max-w-none text-gray-900"
+            dangerouslySetInnerHTML={{ __html: mdFromJsonHtml }}
+          />
+        ) : (
+          <div className="text-gray-400 text-sm">Converting...</div>
+        );
+      }
+      // Regular markdown/text → rendered HTML
+      return (
+        <article
+          className="max-w-none text-gray-900"
+          dangerouslySetInnerHTML={{ __html: htmlPreview }}
+        />
+      );
+    }
+
+    if (!isJsonContent) {
+      return <div className="text-gray-400 text-sm">Not valid JSON</div>;
+    }
+
+    if (jsonError) {
+      return <div className="text-red-500 text-sm font-mono">{jsonError}</div>;
+    }
+
+    if (!parsedJson) {
+      return <div className="text-gray-400 text-sm">Parsing...</div>;
+    }
+
+    if (outputTab === 'tree') {
+      return (
+        <div className="text-sm font-mono">
+          {treeData ? <TreeNodeView node={treeData} /> : 'Building tree...'}
+        </div>
+      );
+    }
+    if (outputTab === 'toon') {
+      return (
+        <pre className="text-sm font-mono whitespace-pre-wrap break-words text-gray-900">
+          {toonOutput || 'Converting...'}
+        </pre>
+      );
+    }
+    // formatted
+    return (
+      <pre className="text-sm font-mono whitespace-pre-wrap break-words text-gray-900">
+        {JSON.stringify(parsedJson, null, 2)}
+      </pre>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-gradient-to-r from-blue-600 to-purple-600 border-b-4 border-blue-800 sticky top-0 z-50 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <h1 className="text-3xl font-black text-white drop-shadow">MDView</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-black text-white drop-shadow">MDView</h1>
+            <span className="text-white/60 text-xs font-semibold">v0.1.0</span>
+          </div>
           <div className="flex gap-1 bg-white/10 rounded-lg p-1">
-            {(['markdown', 'json', 'api'] as const).map((tab) => (
+            {(['editor', 'api'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setMode(tab)}
@@ -454,7 +648,7 @@ export default function MarkdownEditor() {
                     : 'text-white/80 hover:text-white hover:bg-white/10'
                 }`}
               >
-                {tab === 'markdown' ? 'Markdown' : tab === 'json' ? 'JSON' : 'API'}
+                {tab === 'editor' ? 'Editor' : 'API'}
               </button>
             ))}
           </div>
@@ -464,11 +658,8 @@ export default function MarkdownEditor() {
       <main className="w-full bg-gray-50 py-8">
         {mode === 'api' ? (
           <ApiDocs />
-        ) : mode === 'json' ? (
-          <JsonViewer />
         ) : (
         <div className="w-full px-4 sm:px-6 lg:px-8">
-          {/* Editor and Preview */}
           <div
             className={`grid gap-6 ${
               showPreview
@@ -476,7 +667,7 @@ export default function MarkdownEditor() {
                 : 'grid-cols-1'
             }`}
           >
-            {/* Editor */}
+            {/* Input */}
             <div className="bg-white rounded-lg border-2 border-gray-300 overflow-hidden shadow-lg flex flex-col relative">
               {isProcessing && (
                 <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center">
@@ -487,34 +678,22 @@ export default function MarkdownEditor() {
               )}
               <div className="bg-gradient-to-r from-blue-600 to-blue-700 border-b-2 border-blue-800 px-4 py-3 flex justify-between items-center gap-3">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-white">📝 Input</h3>
-                  <select
-                    value={formatType}
-                    onChange={(e) => setFormatType(e.target.value as 'markdown' | 'html' | 'text')}
-                    className="px-2 py-1 bg-blue-500 text-white rounded text-xs font-semibold border border-blue-400 focus:outline-none focus:ring-2 focus:ring-yellow-300"
-                  >
-                    <option value="markdown">Markdown</option>
-                    <option value="html">HTML</option>
-                    <option value="text">Text</option>
-                  </select>
+                  <h3 className="text-sm font-bold text-white">Input</h3>
+                  {isJsonContent && (
+                    <span className="px-2 py-0.5 bg-amber-400 text-amber-900 rounded text-xs font-bold">JSON</span>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => fileRef.current?.click()}
                     className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded font-bold transition transform hover:scale-105 active:scale-95 text-xs"
                   >
-                    Upload File
-                  </button>
-                  <button
-                    onClick={handleAutoFormat}
-                    className="px-3 py-1 bg-yellow-400 hover:bg-yellow-500 text-gray-900 rounded font-bold transition transform hover:scale-105 active:scale-95 text-xs"
-                  >
-                    🔧 Format
+                    Upload
                   </button>
                   <input
                     ref={fileRef}
                     type="file"
-                    accept=".csv,.xls,.xlsx,.doc,.docx,.pdf,.txt,.md,.html,.htm"
+                    accept=".csv,.xls,.xlsx,.doc,.docx,.pdf,.txt,.md,.html,.htm,.json"
                     onChange={handleFileUpload}
                     className="hidden"
                   />
@@ -524,53 +703,52 @@ export default function MarkdownEditor() {
                 value={markdown}
                 onChange={(e) => setMarkdown(e.target.value)}
                 onPaste={handlePaste}
-                placeholder="Paste your content here..."
+                placeholder="Paste content here — Markdown, JSON, HTML, or upload a file..."
                 className="w-full h-96 xl:h-screen p-4 font-mono text-sm resize-none focus:outline-none bg-gray-50 text-gray-900 placeholder-gray-400 border-0 focus:bg-white focus:ring-0 transition-colors flex-1"
+                spellCheck={!isJsonContent}
               />
             </div>
 
-            {/* Preview */}
+            {/* Output */}
             {showPreview && (
               <div className="bg-white rounded-lg border-2 border-gray-300 overflow-hidden shadow-lg flex flex-col">
-                <div className="bg-gradient-to-r from-green-600 to-green-700 border-b-2 border-green-800 px-4 py-3 flex justify-between items-center gap-2">
-                  <h3 className="text-sm font-bold text-white">📄 Preview</h3>
+                <div className={`bg-gradient-to-r ${outputTab !== 'md' ? 'from-teal-600 to-teal-700 border-b-2 border-teal-800' : 'from-green-600 to-green-700 border-b-2 border-green-800'} px-4 py-3 flex justify-between items-center gap-2`}>
+                  <div className="flex gap-1">
+                    {availableTabs.map((tab) => (
+                      <button
+                        key={tab.key}
+                        onClick={() => setOutputTab(tab.key)}
+                        className={`px-3 py-1 rounded font-bold text-xs transition ${
+                          outputTab === tab.key
+                            ? 'bg-white text-gray-700 shadow'
+                            : 'bg-white/20 hover:bg-white/30 text-white'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
                   <div className="flex gap-2">
                     <button
-                      onClick={handleCopyMarkdown}
+                      onClick={handleCopyOutput}
                       className={`px-3 py-1 rounded font-bold transition transform hover:scale-105 active:scale-95 text-xs ${
                         isCopied
                           ? 'bg-green-500 text-white'
                           : 'bg-purple-500 hover:bg-purple-600 text-white'
                       }`}
                     >
-                      {isCopied ? '✓ Copied' : '📋 Copy'}
-                    </button>
-                    <button
-                      onClick={handleSaveDocument}
-                      disabled={isSaving}
-                      className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white rounded font-bold transition transform hover:scale-105 active:scale-95 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      💾 Save
+                      {isCopied ? '✓ Copied' : 'Copy'}
                     </button>
                     <button
                       onClick={handleExportPDF}
                       className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded font-bold transition transform hover:scale-105 active:scale-95 text-xs"
                     >
-                      📄 Export
-                    </button>
-                    <button
-                      onClick={() => setIsFullscreen(true)}
-                      className="px-3 py-1 bg-blue-400 hover:bg-blue-500 text-white rounded font-bold transition transform hover:scale-105 active:scale-95 text-xs"
-                    >
-                      ⛶ Fullscreen
+                      PDF
                     </button>
                   </div>
                 </div>
                 <div className="h-96 xl:h-screen overflow-auto p-4 bg-white flex-1">
-                  <article
-                    className="max-w-none text-gray-900"
-                    dangerouslySetInnerHTML={{ __html: htmlPreview }}
-                  />
+                  {renderOutput()}
                 </div>
               </div>
             )}
@@ -581,25 +759,19 @@ export default function MarkdownEditor() {
 
       {/* Footer */}
       <footer className="bg-white border-t-2 border-gray-200 py-6 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center gap-4 text-gray-500 text-sm">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-gray-700">MDView</span>
-            <span>v0.1.0</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <a
-              href="https://github.com/quannadev/markdown-view"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-indigo-600 transition flex items-center gap-1 font-semibold"
-            >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
-              </svg>
-              GitHub
-            </a>
-            <span>Made with ❤️ by quannadev</span>
-          </div>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-center items-center gap-4 text-gray-500 text-sm">
+          <a
+            href="https://github.com/quannadev/markdown-view"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-indigo-600 transition flex items-center gap-1 font-semibold"
+          >
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
+            </svg>
+            GitHub
+          </a>
+          <span>Made with ❤️ by quannadev</span>
         </div>
       </footer>
 
@@ -607,23 +779,23 @@ export default function MarkdownEditor() {
       {isFullscreen && (
         <div className="fixed inset-0 z-50 bg-white overflow-auto">
           <div className="sticky top-0 z-50 bg-gradient-to-r from-green-600 to-green-700 border-b-4 border-green-800 px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center shadow-lg">
-            <h2 className="text-2xl font-bold text-white">📄 Full Preview</h2>
+            <h2 className="text-2xl font-bold text-white">Full Preview</h2>
             <div className="flex gap-2">
               <button
-                onClick={handleCopyMarkdown}
+                onClick={handleCopyOutput}
                 className={`px-4 py-2 rounded-lg font-bold transition transform hover:scale-105 active:scale-95 ${
                   isCopied
                     ? 'bg-green-500 text-white'
                     : 'bg-purple-500 hover:bg-purple-600 text-white'
                 }`}
               >
-                {isCopied ? '✓ Copied' : '📋 Copy'}
+                {isCopied ? '✓ Copied' : 'Copy'}
               </button>
               <button
                 onClick={handleExportPDF}
                 className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-bold transition transform hover:scale-105 active:scale-95"
               >
-                📄 Export
+                Export
               </button>
               <button
                 onClick={() => setIsFullscreen(false)}
