@@ -1,5 +1,5 @@
-import { formatJson, jsonToToon, buildTree } from './json';
-import { parseMarkdown, autoFormat } from './markdown';
+import { formatJson, jsonToToon, buildTree } from '@/lib/json';
+import { parseMarkdown, autoFormat } from '@/lib/markdown';
 
 self.addEventListener('message', (e) => {
   const { id, type, payload } = e.data;
