@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
-import { formatJson, jsonToToon, buildTree, TreeNode } from '@/lib/json';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { jsonToToon, buildTree, TreeNode } from '@/lib/json';
+import { useParseWorker } from '@/hooks/useParseWorker';
 
 type OutputTab = 'formatted' | 'tree' | 'toon';
 
@@ -47,117 +48,129 @@ export default function JsonViewer() {
   const [error, setError] = useState<string | null>(null);
   const [outputTab, setOutputTab] = useState<OutputTab>('formatted');
   const [isCopied, setIsCopied] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [parsedObject, setParsedObject] = useState<any>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const runWorker = useParseWorker();
 
-  const parsed = (() => {
-    if (!input.trim()) return null;
-    try {
-      return JSON.parse(input);
-    } catch {
-      return null;
-    }
-  })();
-
-  const validate = useCallback((text: string) => {
-    if (!text.trim()) {
+  // Async parse whenever input changes
+  useEffect(() => {
+    if (!input.trim()) {
+      setParsedObject(null);
       setError(null);
       return;
     }
-    try {
-      JSON.parse(text);
-      setError(null);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }, []);
+
+    const timer = setTimeout(async () => {
+      try {
+        const result = await runWorker<any>('JSON_PARSE', input);
+        setParsedObject(result);
+        setError(null);
+      } catch (e: any) {
+        setError(e.message);
+        setParsedObject(null);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [input, runWorker]);
 
   const handleInputChange = useCallback((text: string) => {
     setInput(text);
-    validate(text);
-  }, [validate]);
+  }, []);
 
-  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+  const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     e.preventDefault();
     const text = e.clipboardData.getData('text');
+    setIsProcessing(true);
     try {
-      const formatted = formatJson(text);
+      const formatted = await runWorker<string>('JSON_FORMAT', text);
       setInput(formatted);
       setError(null);
     } catch {
       setInput(text);
-      validate(text);
+    } finally {
+      setIsProcessing(false);
     }
-  }, [validate]);
+  }, [runWorker]);
 
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const text = ev.target?.result as string;
+      setIsProcessing(true);
       try {
-        const formatted = formatJson(text);
+        const formatted = await runWorker<string>('JSON_FORMAT', text);
         setInput(formatted);
         setError(null);
       } catch {
         setInput(text);
-        validate(text);
+      } finally {
+        setIsProcessing(false);
       }
     };
     reader.readAsText(file);
     if (fileRef.current) fileRef.current.value = '';
-  }, [validate]);
+  }, [runWorker]);
 
-  const handleFormat = useCallback(() => {
+  const handleFormat = useCallback(async () => {
+    if (!input.trim()) return;
+    setIsProcessing(true);
     try {
-      setInput(formatJson(input));
+      const formatted = await runWorker<string>('JSON_FORMAT', input);
+      setInput(formatted);
       setError(null);
-    } catch (e) {
-      setError((e as Error).message);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setIsProcessing(false);
     }
-  }, [input]);
+  }, [input, runWorker]);
 
   const handleCopy = useCallback(async () => {
     let text = '';
-    if (outputTab === 'formatted') text = parsed ? JSON.stringify(parsed, null, 2) : '';
+    if (outputTab === 'formatted') text = parsedObject ? JSON.stringify(parsedObject, null, 2) : '';
     else if (outputTab === 'toon') {
-      try { text = jsonToToon(input); } catch { text = ''; }
+      try { text = await runWorker<string>('JSON_TO_TOON', input); } catch { text = ''; }
     } else text = input;
 
     if (!text) return;
     await navigator.clipboard.writeText(text);
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
-  }, [outputTab, parsed, input]);
+  }, [outputTab, parsedObject, input, runWorker]);
 
   const handleClear = useCallback(() => {
     setInput('');
+    setParsedObject(null);
     setError(null);
   }, []);
 
-  const getOutput = () => {
-    if (!parsed) return null;
-    switch (outputTab) {
-      case 'formatted':
-        return JSON.stringify(parsed, null, 2);
-      case 'toon':
-        try { return jsonToToon(input); } catch (e) { return `Error: ${(e as Error).message}`; }
-      case 'tree':
-        return buildTree(parsed);
-      default:
-        return null;
-    }
-  };
+  const [treeData, setTreeData] = useState<TreeNode | null>(null);
 
-  const output = getOutput();
+  // Update tree data when parsedObject changes and tab is tree
+  useEffect(() => {
+    if (outputTab === 'tree' && parsedObject) {
+      runWorker<TreeNode>('JSON_TREE', parsedObject).then(setTreeData);
+    }
+  }, [outputTab, parsedObject, runWorker]);
 
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8">
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
         {/* Input Panel */}
-        <div className="bg-white rounded-lg border-2 border-gray-300 overflow-hidden shadow-lg flex flex-col">
+        <div className="bg-white rounded-lg border-2 border-gray-300 overflow-hidden shadow-lg flex flex-col relative">
+          {isProcessing && (
+            <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center">
+              <div className="bg-white px-4 py-2 rounded-lg shadow-md border border-gray-200 font-bold text-amber-600 animate-pulse">
+                Processing...
+              </div>
+            </div>
+          )}
           <div className="bg-gradient-to-r from-amber-500 to-amber-600 border-b-2 border-amber-700 px-4 py-3 flex justify-between items-center gap-3">
-            <h3 className="text-sm font-bold text-white">{ } JSON Input</h3>
+            <h3 className="text-sm font-bold text-white">JSON Input</h3>
             <div className="flex gap-2">
               <button
                 onClick={() => fileRef.current?.click()}
@@ -221,7 +234,7 @@ export default function JsonViewer() {
             </div>
             <button
               onClick={handleCopy}
-              disabled={!parsed}
+              disabled={!parsedObject}
               className={`px-3 py-1 rounded font-bold transition transform hover:scale-105 active:scale-95 text-xs disabled:opacity-50 ${
                 isCopied
                   ? 'bg-green-500 text-white'
@@ -232,17 +245,22 @@ export default function JsonViewer() {
             </button>
           </div>
           <div className="h-96 xl:h-screen overflow-auto p-4 bg-white flex-1">
-            {!parsed ? (
+            {!parsedObject ? (
               <div className="text-gray-400 text-sm">
                 {input.trim() ? 'Invalid JSON' : 'Output will appear here...'}
               </div>
             ) : outputTab === 'tree' ? (
               <div className="text-sm font-mono">
-                <TreeNodeView node={output as TreeNode} />
+                {treeData ? <TreeNodeView node={treeData} /> : 'Building tree...'}
               </div>
+            ) : outputTab === 'toon' ? (
+              <pre className="text-sm font-mono whitespace-pre-wrap break-words text-gray-900">
+                {/* We'll calculate TOON on the fly or in effect, for simplicity here just show message if it takes time */}
+                Processing TOON...
+              </pre>
             ) : (
               <pre className="text-sm font-mono whitespace-pre-wrap break-words text-gray-900">
-                {output as string}
+                {JSON.stringify(parsedObject, null, 2)}
               </pre>
             )}
           </div>

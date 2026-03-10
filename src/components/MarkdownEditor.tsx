@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { parseMarkdown, autoFormat } from '@/lib/markdown';
+import { useParseWorker } from '@/hooks/useParseWorker';
 import {
   saveDocument,
   updateDocument,
@@ -127,7 +127,7 @@ function ApiDocs() {
               </p>
             </section>
 
-            {/* Examples */}
+            {/* Try it */}
             <section>
               <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">Try it</h3>
               <div className="space-y-3">
@@ -153,7 +153,7 @@ function ApiDocs() {
               </div>
             </section>
 
-            {/* JS snippet */}
+            {/* JavaScript Example */}
             <section>
               <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">JavaScript Example</h3>
               <pre className="bg-gray-900 rounded-lg p-4 font-mono text-sm text-gray-100 overflow-x-auto">{`const content = encodeURIComponent(JSON.stringify({
@@ -177,6 +177,7 @@ window.open(\`${BASE}/?content=\${content}&format=toon\`);`}</pre>
 export default function MarkdownEditor() {
   const [mode, setMode] = useState<AppMode>('markdown');
   const [markdown, setMarkdown] = useState('');
+  const [htmlPreview, setHtmlPreview] = useState('');
   const [documentName, setDocumentName] = useState('Untitled');
   const [currentDocId, setCurrentDocId] = useState<string | null>(null);
   const [documents, setDocuments] = useState<StoredDocument[]>([]);
@@ -184,8 +185,10 @@ export default function MarkdownEditor() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isNewDocument, setIsNewDocument] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [formatType, setFormatType] = useState<'markdown' | 'html' | 'text'>('markdown');
   const [isCopied, setIsCopied] = useState(false);
+  const runWorker = useParseWorker();
 
   // Load documents from storage
   useEffect(() => {
@@ -204,6 +207,25 @@ export default function MarkdownEditor() {
     }
   }, []);
 
+  // Update preview via worker
+  useEffect(() => {
+    if (!markdown.trim()) {
+      setHtmlPreview('');
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const result = await runWorker<string>('MD_PARSE', { content: markdown, format: formatType });
+        setHtmlPreview(result);
+      } catch (e) {
+        console.error('Markdown parse error:', e);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [markdown, formatType, runWorker]);
+
   // Auto-save on interval
   useEffect(() => {
     if (!markdown || isNewDocument || !currentDocId) return;
@@ -217,20 +239,31 @@ export default function MarkdownEditor() {
     return () => clearTimeout(timer);
   }, [markdown, documentName, currentDocId, isNewDocument]);
 
-  const handleAutoFormat = useCallback(() => {
-    const formatted = autoFormat(markdown);
-    setMarkdown(formatted);
-  }, [markdown]);
-
-  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    // Get the current textarea value and pasted content
-    const textarea = e.currentTarget;
-    setTimeout(() => {
-      const pastedContent = textarea.value;
-      const formatted = autoFormat(pastedContent);
+  const handleAutoFormat = useCallback(async () => {
+    setIsProcessing(true);
+    try {
+      const formatted = await runWorker<string>('MD_FORMAT', markdown);
       setMarkdown(formatted);
-    }, 0);
-  }, []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [markdown, runWorker]);
+
+  const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    const text = e.clipboardData.getData('text');
+    setIsProcessing(true);
+    try {
+      const formatted = await runWorker<string>('MD_FORMAT', text);
+      setMarkdown(formatted);
+    } catch {
+      setMarkdown(text);
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [runWorker]);
 
   const handleSaveDocument = useCallback(async () => {
     if (!markdown.trim()) {
@@ -266,14 +299,13 @@ export default function MarkdownEditor() {
 
     try {
       const { exportPDF } = await import('@/lib/pdf');
-      const htmlContent = parseMarkdown(markdown);
       const filename = documentName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      await exportPDF(filename, htmlContent, documentName);
+      await exportPDF(filename, htmlPreview, documentName);
     } catch (error) {
       console.error('Error exporting PDF:', error);
       alert('Error exporting PDF');
     }
-  }, [markdown, documentName]);
+  }, [htmlPreview, documentName, markdown]);
 
   const handleCopyMarkdown = useCallback(async () => {
     if (!markdown.trim()) {
@@ -319,8 +351,6 @@ export default function MarkdownEditor() {
     }
   }, [currentDocId, handleNewDocument]);
 
-  const htmlPreview = parseMarkdown(markdown, formatType);
-
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -361,7 +391,14 @@ export default function MarkdownEditor() {
             }`}
           >
             {/* Editor */}
-            <div className="bg-white rounded-lg border-2 border-gray-300 overflow-hidden shadow-lg flex flex-col">
+            <div className="bg-white rounded-lg border-2 border-gray-300 overflow-hidden shadow-lg flex flex-col relative">
+              {isProcessing && (
+                <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center">
+                  <div className="bg-white px-4 py-2 rounded-lg shadow-md border border-gray-200 font-bold text-blue-600 animate-pulse">
+                    Processing...
+                  </div>
+                </div>
+              )}
               <div className="bg-gradient-to-r from-blue-600 to-blue-700 border-b-2 border-blue-800 px-4 py-3 flex justify-between items-center gap-3">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold text-white">📝 Input</h3>
