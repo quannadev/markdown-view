@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParseWorker } from '@/hooks/useParseWorker';
 import {
   saveDocument,
@@ -251,17 +251,103 @@ export default function MarkdownEditor() {
     }
   }, [markdown, runWorker]);
 
-  const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    e.preventDefault();
-    const text = e.clipboardData.getData('text');
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
     setIsProcessing(true);
-    try {
-      const formatted = await runWorker<string>('MD_FORMAT', text);
-      setMarkdown(formatted);
-    } catch {
-      setMarkdown(text);
-    } finally {
-      setIsProcessing(false);
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const buffer = ev.target?.result as ArrayBuffer;
+        const data = new Uint8Array(buffer);
+        const mimeType = file.type || 'text/plain';
+        
+        const result = await runWorker<string>('KREUZBERG_EXTRACT', { data, mimeType });
+        setMarkdown(result);
+        setDocumentName(file.name);
+        setCurrentDocId(null);
+        setIsNewDocument(true);
+      } catch (err: any) {
+        console.error('Extraction error:', err);
+        alert(`Failed to extract document: ${err.message}`);
+      } finally {
+        setIsProcessing(false);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    if (fileRef.current) fileRef.current.value = '';
+  }, [runWorker]);
+
+  const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const textarea = e.currentTarget;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const types = e.clipboardData.types;
+    
+    let mimeType: string | null = null;
+    let contentToExtract: string | null = null;
+    let fileData: Uint8Array | null = null;
+
+    if (e.clipboardData.files && e.clipboardData.files.length > 0) {
+      e.preventDefault();
+      const file = e.clipboardData.files[0];
+      const buffer = await file.arrayBuffer();
+      fileData = new Uint8Array(buffer);
+      mimeType = file.type || 'text/plain';
+    } else if (types.includes('text/html')) {
+      e.preventDefault();
+      contentToExtract = e.clipboardData.getData('text/html');
+      mimeType = 'text/html';
+    } else {
+      const text = e.clipboardData.getData('text');
+      if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
+        try {
+          JSON.parse(text);
+          e.preventDefault();
+          contentToExtract = text;
+          mimeType = 'application/json';
+        } catch {}
+      }
+    }
+
+    const insertText = (textToInsert: string) => {
+      setMarkdown(prev => prev.substring(0, start) + textToInsert + prev.substring(end));
+      setTimeout(() => {
+        textarea.selectionStart = textarea.selectionEnd = start + textToInsert.length;
+        textarea.focus();
+      }, 0);
+    };
+
+    if (fileData && mimeType) {
+      setIsProcessing(true);
+      try {
+        const result = await runWorker<string>('KREUZBERG_EXTRACT', { data: fileData, mimeType });
+        insertText(result);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsProcessing(false);
+      }
+    } else if (contentToExtract && mimeType) {
+      setIsProcessing(true);
+      try {
+        const data = new TextEncoder().encode(contentToExtract);
+        const result = await runWorker<string>('KREUZBERG_EXTRACT', { data, mimeType });
+        insertText(result);
+      } catch (err) {
+        console.error(err);
+        insertText(contentToExtract);
+      } finally {
+        setIsProcessing(false);
+      }
+    } else if (!fileData && !contentToExtract) {
+      // Default text paste - let it happen normally but format afterwards if needed
+      // To avoid interfering with native undo stack for normal text, we just let it paste natively
+      // If we want to auto-format, we should do it cautiously.
+      // We will let the default paste happen without preventDefault.
     }
   }, [runWorker]);
 
@@ -412,12 +498,26 @@ export default function MarkdownEditor() {
                     <option value="text">Text</option>
                   </select>
                 </div>
-                <button
-                  onClick={handleAutoFormat}
-                  className="px-3 py-1 bg-yellow-400 hover:bg-yellow-500 text-gray-900 rounded font-bold transition transform hover:scale-105 active:scale-95 text-xs"
-                >
-                  🔧 Format
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => fileRef.current?.click()}
+                    className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded font-bold transition transform hover:scale-105 active:scale-95 text-xs"
+                  >
+                    Upload File
+                  </button>
+                  <button
+                    onClick={handleAutoFormat}
+                    className="px-3 py-1 bg-yellow-400 hover:bg-yellow-500 text-gray-900 rounded font-bold transition transform hover:scale-105 active:scale-95 text-xs"
+                  >
+                    🔧 Format
+                  </button>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </div>
               </div>
               <textarea
                 value={markdown}
