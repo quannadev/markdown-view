@@ -265,7 +265,7 @@ export default function MarkdownEditor() {
         const data = new Uint8Array(buffer);
         const mimeType = file.type || 'text/plain';
         
-        const result = await runWorker<string>('KREUZBERG_EXTRACT', { data, mimeType });
+        const result = await runWorker<string>('KREUZBERG_EXTRACT', { data, mimeType, fileName: file.name });
         setMarkdown(result);
         setDocumentName(file.name);
         setCurrentDocId(null);
@@ -514,6 +514,7 @@ export default function MarkdownEditor() {
                   <input
                     ref={fileRef}
                     type="file"
+                    accept=".csv,.xls,.xlsx,.doc,.docx,.pdf,.txt,.md,.html,.htm"
                     onChange={handleFileUpload}
                     className="hidden"
                   />

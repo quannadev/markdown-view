@@ -4,6 +4,7 @@ import webpack from "webpack";
 const nextConfig: NextConfig = {
   output: "export",
   reactCompiler: true,
+  turbopack: {},
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {
@@ -31,7 +32,24 @@ const nextConfig: NextConfig = {
           resourceRegExp: /^(node:)?(fs|path|os|worker_threads|child_process|module|url)$/,
         })
       );
+
     }
+
+    // Enable top-level await for @kreuzberg/wasm WASM module
+    config.experiments = {
+      ...config.experiments,
+      topLevelAwait: true,
+    };
+
+    // Suppress "Critical dependency" warning from @kreuzberg/wasm
+    config.ignoreWarnings = [
+      ...(config.ignoreWarnings || []),
+      {
+        module: /@kreuzberg[\\/]wasm/,
+        message: /Critical dependency/,
+      },
+    ];
+
     return config;
   },
 };
