@@ -1,10 +1,13 @@
 import MarkdownIt from 'markdown-it';
+import anchor from 'markdown-it-anchor';
 
 const md = new MarkdownIt({
   html: true,
   linkify: true,
   typographer: true,
   breaks: true,
+}).use(anchor, {
+  slugify: s => String(s).trim().toLowerCase().replace(/[\s\W-]+/g, '-')
 });
 
 export function parseMarkdown(content: string, format: 'markdown' | 'html' | 'text' = 'markdown'): string {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Book, Copy, Check, FileDown, Upload, Plus, Trash2, Maximize2, Minimize2, ArrowUp } from 'lucide-react';
 import { useParseWorker } from '@/hooks/useParseWorker';
 import {
   updateDocument,
@@ -218,7 +219,32 @@ export default function MarkdownEditor() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [outputTab, setOutputTab] = useState<OutputTab>('md');
+  const [showToc, setShowToc] = useState(false);
+  const [toc, setToc] = useState<{ id: string; text: string; level: number }[]>([]);
+  const [stats, setStats] = useState({ chars: 0, words: 0, lines: 0, items: 0, tokens: 0 });
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const runWorker = useParseWorker();
+
+  const outputRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const checkScroll = useCallback(() => {
+    const windowScrolled = window.scrollY > 300;
+    const inputScrolled = (inputRef.current?.scrollTop || 0) > 300;
+    const outputScrolled = (outputRef.current?.scrollTop || 0) > 300;
+    setShowScrollTop(windowScrolled || inputScrolled || outputScrolled);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('scroll', checkScroll);
+    return () => window.removeEventListener('scroll', checkScroll);
+  }, [checkScroll]);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    inputRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    outputRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // JSON-specific state
   const [parsedJson, setParsedJson] = useState<any>(null);
@@ -277,6 +303,29 @@ export default function MarkdownEditor() {
     return () => clearTimeout(timer);
   }, [markdown, outputTab, isJsonContent, runWorker]);
 
+  // Extract TOC
+  useEffect(() => {
+    const htmlToParse = isJsonContent ? mdFromJsonHtml : htmlPreview;
+    if (!htmlToParse || outputTab !== 'md') {
+      setToc([]);
+      return;
+    }
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlToParse, 'text/html');
+    const headings = doc.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    const extractedToc: { id: string; text: string; level: number }[] = [];
+    headings.forEach(heading => {
+      if (heading.id) {
+        extractedToc.push({
+          id: heading.id,
+          text: heading.textContent || '',
+          level: parseInt(heading.tagName[1])
+        });
+      }
+    });
+    setToc(extractedToc);
+  }, [htmlPreview, mdFromJsonHtml, isJsonContent, outputTab]);
+
   // Parse JSON when content is JSON
   useEffect(() => {
     if (!isJsonContent) {
@@ -307,6 +356,25 @@ export default function MarkdownEditor() {
       runWorker<TreeNode>('JSON_TREE', parsedJson).then(setTreeData);
     }
   }, [outputTab, parsedJson, runWorker]);
+
+  // Update stats
+  useEffect(() => {
+    if (!markdown) {
+      setStats({ chars: 0, words: 0, lines: 0, items: 0, tokens: 0 });
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const result = await runWorker<{chars: number, words: number, lines: number, items: number, tokens: number}>('COUNT_STATS', { content: markdown, isJson: isJsonContent });
+        setStats(result);
+      } catch (e) {
+        console.error('Stats error:', e);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [markdown, isJsonContent, runWorker]);
 
   // Build TOON output when needed
   useEffect(() => {
@@ -633,9 +701,28 @@ export default function MarkdownEditor() {
       {/* Header */}
       <header className="bg-gradient-to-r from-blue-600 to-purple-600 border-b-4 border-blue-800 sticky top-0 z-50 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-black text-white drop-shadow">MDView</h1>
-            <span className="text-white/60 text-xs font-semibold">v0.1.0</span>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <h1 className="text-3xl font-black text-white drop-shadow">MDView</h1>
+              <span className="text-white/60 text-xs font-semibold hidden sm:inline">v0.1.0</span>
+            </div>
+            {mode === 'editor' && stats.chars > 0 && (
+              <div className="hidden md:flex gap-3 text-xs text-white/90 font-mono bg-black/20 px-3 py-1.5 rounded-lg border border-white/10 shadow-inner">
+                <span title="Characters">{stats.chars.toLocaleString()} c</span>
+                <span className="opacity-30">|</span>
+                <span title="Words">{stats.words.toLocaleString()} w</span>
+                <span className="opacity-30">|</span>
+                <span title="Tokens (GPT-3/4)">{stats.tokens.toLocaleString()} t</span>
+                <span className="opacity-30">|</span>
+                <span title="Lines">{stats.lines.toLocaleString()} l</span>
+                {isJsonContent && (
+                  <>
+                    <span className="opacity-30">|</span>
+                    <span title="JSON Items">{stats.items.toLocaleString()} i</span>
+                  </>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex gap-1 bg-white/10 rounded-lg p-1">
             {(['editor', 'api'] as const).map((tab) => (
@@ -686,9 +773,10 @@ export default function MarkdownEditor() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => fileRef.current?.click()}
-                    className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded font-bold transition transform hover:scale-105 active:scale-95 text-xs"
+                    className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition transform hover:scale-110 active:scale-95 flex items-center justify-center"
+                    title="Upload File"
                   >
-                    Upload
+                    <Upload size={20} />
                   </button>
                   <input
                     ref={fileRef}
@@ -699,14 +787,18 @@ export default function MarkdownEditor() {
                   />
                 </div>
               </div>
-              <textarea
-                value={markdown}
-                onChange={(e) => setMarkdown(e.target.value)}
-                onPaste={handlePaste}
-                placeholder="Paste content here — Markdown, JSON, HTML, or upload a file..."
-                className="w-full h-96 xl:h-screen p-4 font-mono text-sm resize-none focus:outline-none bg-gray-50 text-gray-900 placeholder-gray-400 border-0 focus:bg-white focus:ring-0 transition-colors flex-1"
-                spellCheck={!isJsonContent}
-              />
+              <div className="relative flex-1 flex flex-col">
+                <textarea
+                  ref={inputRef}
+                  value={markdown}
+                  onChange={(e) => setMarkdown(e.target.value)}
+                  onPaste={handlePaste}
+                  onScroll={checkScroll}
+                  placeholder="Paste content here — Markdown, JSON, HTML, or upload a file..."
+                  className="w-full h-96 xl:h-screen p-4 font-mono text-sm resize-none focus:outline-none bg-gray-50 text-gray-900 placeholder-gray-400 border-0 focus:bg-white focus:ring-0 transition-colors flex-1"
+                  spellCheck={!isJsonContent}
+                />
+              </div>
             </div>
 
             {/* Output */}
@@ -728,32 +820,91 @@ export default function MarkdownEditor() {
                       </button>
                     ))}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-1">
+                    {outputTab === 'md' && toc.length > 0 && (
+                      <button
+                        onClick={() => setShowToc(!showToc)}
+                        className={`p-2 rounded-full transition transform hover:scale-110 active:scale-95 flex items-center justify-center ${
+                          showToc
+                            ? 'text-white bg-white/20'
+                            : 'text-white/80 hover:text-white hover:bg-white/10'
+                        }`}
+                        title={showToc ? 'Hide TOC' : 'Show TOC'}
+                      >
+                        <Book size={20} />
+                      </button>
+                    )}
                     <button
                       onClick={handleCopyOutput}
-                      className={`px-3 py-1 rounded font-bold transition transform hover:scale-105 active:scale-95 text-xs ${
+                      className={`p-2 rounded-full transition transform hover:scale-110 active:scale-95 flex items-center justify-center ${
                         isCopied
-                          ? 'bg-green-500 text-white'
-                          : 'bg-purple-500 hover:bg-purple-600 text-white'
+                          ? 'text-green-300'
+                          : 'text-white/80 hover:text-white hover:bg-white/10'
                       }`}
+                      title={isCopied ? 'Copied' : 'Copy Output'}
                     >
-                      {isCopied ? '✓ Copied' : 'Copy'}
+                      {isCopied ? <Check size={20} /> : <Copy size={20} />}
                     </button>
                     <button
                       onClick={handleExportPDF}
-                      className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded font-bold transition transform hover:scale-105 active:scale-95 text-xs"
+                      className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition transform hover:scale-110 active:scale-95 flex items-center justify-center"
+                      title="Export PDF"
                     >
-                      PDF
+                      <FileDown size={20} />
                     </button>
+                    {outputTab === 'md' && (
+                      <button
+                        onClick={() => setIsFullscreen(true)}
+                        className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition transform hover:scale-110 active:scale-95 flex items-center justify-center"
+                        title="Reading Mode"
+                      >
+                        <Maximize2 size={20} />
+                      </button>
+                    )}
                   </div>
                 </div>
-                <div className="h-96 xl:h-screen overflow-auto p-4 bg-white flex-1">
-                  {renderOutput()}
+                <div className="h-96 xl:h-screen overflow-hidden p-4 bg-white flex-1 flex gap-4 relative">
+                  {outputTab === 'md' && showToc && toc.length > 0 && (
+                    <div className="w-64 flex-shrink-0 border-r border-gray-200 pr-4 overflow-y-auto">
+                      <h4 className="font-bold text-gray-700 mb-4 uppercase text-xs tracking-wider sticky top-0 bg-white py-2">Table of Contents</h4>
+                      <ul className="space-y-2">
+                        {toc.map((item, idx) => (
+                          <li key={`${item.id}-${idx}`} style={{ paddingLeft: `${(item.level - 1) * 12}px` }}>
+                            <a
+                              href={`#${item.id}`}
+                              className="text-sm text-gray-600 hover:text-blue-600 block truncate transition-colors"
+                              title={item.text}
+                            >
+                              {item.text}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div
+                    ref={outputRef}
+                    onScroll={checkScroll}
+                    className="flex-1 overflow-y-auto pr-2"
+                  >
+                    {renderOutput()}
+                  </div>
                 </div>
               </div>
             )}
           </div>
         </div>
+        )}
+        
+        {/* Global Scroll to Top */}
+        {showScrollTop && !isFullscreen && (
+          <button
+            onClick={scrollToTop}
+            className="fixed bottom-8 right-8 p-3 bg-white border-2 border-gray-200 text-gray-600 rounded-full shadow-lg hover:bg-gray-50 hover:text-blue-600 transition-all transform hover:scale-110 active:scale-95 z-40"
+            title="Scroll to Top"
+          >
+            <ArrowUp size={24} />
+          </button>
         )}
       </main>
 
@@ -777,39 +928,58 @@ export default function MarkdownEditor() {
 
       {/* Fullscreen Preview Modal */}
       {isFullscreen && (
-        <div className="fixed inset-0 z-50 bg-white overflow-auto">
-          <div className="sticky top-0 z-50 bg-gradient-to-r from-green-600 to-green-700 border-b-4 border-green-800 px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center shadow-lg">
-            <h2 className="text-2xl font-bold text-white">Full Preview</h2>
+        <div className="fixed inset-0 z-50 bg-gray-50 overflow-hidden flex flex-col">
+          <div className="flex-shrink-0 bg-white border-b-2 border-gray-200 px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center shadow-sm">
+            <h2 className="text-xl font-bold text-gray-800">Reading Mode</h2>
             <div className="flex gap-2">
               <button
-                onClick={handleCopyOutput}
-                className={`px-4 py-2 rounded-lg font-bold transition transform hover:scale-105 active:scale-95 ${
-                  isCopied
-                    ? 'bg-green-500 text-white'
-                    : 'bg-purple-500 hover:bg-purple-600 text-white'
-                }`}
-              >
-                {isCopied ? '✓ Copied' : 'Copy'}
-              </button>
-              <button
-                onClick={handleExportPDF}
-                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-bold transition transform hover:scale-105 active:scale-95"
-              >
-                Export
-              </button>
-              <button
                 onClick={() => setIsFullscreen(false)}
-                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-bold transition transform hover:scale-105 active:scale-95"
+                className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-full transition transform hover:scale-110 active:scale-95 flex items-center justify-center"
+                title="Exit Reading Mode"
               >
-                ✕ Close
+                <Minimize2 size={24} />
               </button>
             </div>
           </div>
-          <div className="p-8 max-w-4xl mx-auto">
-            <article
-              className="max-w-none text-gray-900 prose-base"
-              dangerouslySetInnerHTML={{ __html: htmlPreview }}
-            />
+          <div 
+            className="flex-1 overflow-auto p-4 sm:p-8 relative"
+            onScroll={(e) => setShowScrollTop(e.currentTarget.scrollTop > 300)}
+            ref={(el) => {
+              if (el) {
+                // We reuse the same logic, but need a way to scroll THIS element
+                // For simplicity in this one-off modal, we can just use the element itself
+                // if we wanted to use the scrollToTop function, we'd need to update it
+              }
+            }}
+          >
+            <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-lg border border-gray-200 p-8 sm:p-12">
+              {isJsonContent ? (
+                mdFromJsonHtml ? (
+                  <article
+                    className="max-w-none text-gray-900 prose prose-indigo"
+                    dangerouslySetInnerHTML={{ __html: mdFromJsonHtml }}
+                  />
+                ) : (
+                  <div className="text-gray-400 text-center py-20">Converting...</div>
+                )
+              ) : (
+                <article
+                  className="max-w-none text-gray-900 prose prose-indigo"
+                  dangerouslySetInnerHTML={{ __html: htmlPreview }}
+                />
+              )}
+            </div>
+            {showScrollTop && (
+              <button
+                onClick={(e) => {
+                  e.currentTarget.parentElement?.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="fixed bottom-8 right-8 p-3 bg-white border-2 border-gray-200 text-gray-600 rounded-full shadow-lg hover:bg-gray-50 hover:text-blue-600 transition-all transform hover:scale-110 active:scale-95 z-50"
+                title="Scroll to Top"
+              >
+                <ArrowUp size={24} />
+              </button>
+            )}
           </div>
         </div>
       )}
