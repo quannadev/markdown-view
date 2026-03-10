@@ -18,24 +18,26 @@ const APP_URL = "https://mdview.quanna.dev";
 
 export const metadata: Metadata = {
   title: {
-    default: "MDView - Markdown & JSON Viewer | Live Preview, Tree View & TOON Export",
+    default: "MDView - Markdown Viewer | View Large Files, Excel & Doc to Markdown",
     template: "%s | MDView",
   },
   description:
-    "Free online Markdown viewer, JSON formatter & TOON converter. Live preview, PDF export, JSON tree view, and JSON-to-TOON conversion for AI prompts. No signup required.",
+    "Free online Markdown viewer and JSON formatter. View large files, convert Excel to Markdown, and Doc to Markdown instantly. Live preview and PDF export.",
   keywords: [
     "markdown viewer",
     "markdown editor",
+    "view large files",
+    "excel to markdown",
+    "doc to markdown",
+    "csv to markdown",
+    "pdf to markdown",
+    "large markdown viewer",
     "json viewer",
     "json formatter",
     "json tree view",
     "json to toon",
-    "toon format",
     "online markdown",
     "markdown preview",
-    "markdown to html",
-    "markdown to pdf",
-    "free markdown editor",
     "md viewer",
     "mdview",
   ],
@@ -44,9 +46,9 @@ export const metadata: Metadata = {
     canonical: "/",
   },
   openGraph: {
-    title: "MDView - Markdown & JSON Viewer | TOON Export",
+    title: "MDView - Markdown Viewer | View Large Files & Convert Docs",
     description:
-      "Free online Markdown viewer, JSON formatter & TOON converter. Live preview, PDF export, tree view. No signup required.",
+      "Free online Markdown viewer and JSON formatter. View large files, convert Excel to Markdown, and Doc to Markdown instantly. Live preview and PDF export.",
     url: APP_URL,
     siteName: "MDView",
     locale: "vi_VN",
@@ -54,9 +56,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "MDView - Markdown & JSON Viewer | TOON Export",
+    title: "MDView - Markdown Viewer | View Large Files & Convert Docs",
     description:
-      "Free online Markdown viewer, JSON formatter & TOON converter. Live preview, PDF export, tree view.",
+      "Free online Markdown viewer and JSON formatter. View large files, convert Excel to Markdown, and Doc to Markdown instantly. Live preview and PDF export.",
   },
   robots: {
     index: true,
@@ -91,7 +93,7 @@ export default function RootLayout({
               name: "MDView",
               url: APP_URL,
               description:
-                "Free online Markdown viewer, JSON formatter and TOON converter with live preview and PDF export.",
+                "Free online Markdown viewer and JSON formatter. Effortlessly view large files, convert Excel to Markdown, and Doc to Markdown. Includes live preview, PDF export, and TOON conversion for AI.",
               applicationCategory: "DeveloperApplication",
               operatingSystem: "All",
               offers: {

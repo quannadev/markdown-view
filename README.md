@@ -1,6 +1,6 @@
-# MDView - Markdown & JSON Viewer
+# MDView - Markdown Viewer & Document Converter
 
-A modern web tool for viewing Markdown and JSON. Built with Next.js, deployed on Cloudflare Pages.
+A modern web tool for viewing large files, converting Excel to Markdown, and Doc to Markdown instantly. Built with Next.js, deployed on Cloudflare Pages.
 
 **Live:** [mdview.quanna.dev](https://mdview.quanna.dev)
 
