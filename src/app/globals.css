@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "katex/dist/katex.min.css";
 
 
 :root {
@@ -202,7 +201,7 @@ article th {
 @media print {
   /* Hide everything non-content */
   header, footer, nav,
-  .print\\:hidden,
+  [data-print-hide],
   button, [role="button"] {
     display: none !important;
   }
@@ -235,7 +234,7 @@ article th {
   }
 
   /* Remove height constraints */
-  .h-96, .xl\\:h-screen {
+  [data-resizable] {
     height: auto !important;
     overflow: visible !important;
   }

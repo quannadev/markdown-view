@@ -22,7 +22,7 @@ import {
 } from '@/lib/storage';
 import { TreeNode } from '@/lib/json';
 
-type OutputTab = 'formatted' | 'tree' | 'toon' | 'md';
+type OutputTab = 'formatted' | 'tree' | 'toon' | 'md' | 'json';
 
 const LARGE_FILE_LINE_LIMIT = 1000;
 
@@ -94,6 +94,7 @@ export default function MarkdownEditor() {
   const [toonOutput, setToonOutput] = useState<string>('');
   const [mdFromJson, setMdFromJson] = useState<string>('');
   const [mdFromJsonHtml, setMdFromJsonHtml] = useState<string>('');
+  const [jsonFromMd, setJsonFromMd] = useState<string>('');
 
   // Derived preview truncation state
   const previewTruncation = useMemo(() => truncateContent(markdown, LARGE_FILE_LINE_LIMIT), [markdown]);
@@ -244,6 +245,22 @@ export default function MarkdownEditor() {
       runWorker<string>('JSON_TO_TOON', markdown).then(setToonOutput).catch(() => setToonOutput(''));
     }
   }, [outputTab, parsedJson, markdown, runWorker]);
+
+  // Convert content to JSON when 'json' tab is active (non-JSON content)
+  useEffect(() => {
+    if (outputTab !== 'json' || isJsonContent || !markdown.trim()) {
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const result = await runWorker<string>('MD_TO_JSON', markdown);
+        setJsonFromMd(result);
+      } catch {
+        setJsonFromMd('[]');
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [outputTab, isJsonContent, markdown, runWorker]);
 
   // Build Markdown from JSON when needed
   useEffect(() => {
@@ -482,6 +499,8 @@ export default function MarkdownEditor() {
       text = JSON.stringify(parsedJson, null, 2);
     } else if (outputTab === 'toon') {
       text = toonOutput;
+    } else if (outputTab === 'json') {
+      text = jsonFromMd;
     } else if (outputTab === 'md') {
       text = isJsonContent ? mdFromJson : fullContent;
     } else {
@@ -593,6 +612,8 @@ export default function MarkdownEditor() {
         { key: 'tree', label: 'Tree' },
         { key: 'toon', label: 'TOON' },
       );
+    } else {
+      tabs.push({ key: 'json', label: 'JSON' });
     }
     return tabs;
   }, [isJsonContent]);
@@ -678,6 +699,7 @@ export default function MarkdownEditor() {
                 treeData={treeData}
                 toonOutput={toonOutput}
                 mdFromJson={mdFromJson}
+                jsonFromMd={jsonFromMd}
               />
             )}
           </div>

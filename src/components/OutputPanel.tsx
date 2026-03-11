@@ -3,7 +3,7 @@ import { Book, Copy, Check, FileDown, Maximize2, Printer, AlertTriangle } from '
 import { TreeNodeView } from '@/components/TreeNodeView';
 import { TreeNode } from '@/lib/json';
 
-type OutputTab = 'formatted' | 'tree' | 'toon' | 'md';
+type OutputTab = 'formatted' | 'tree' | 'toon' | 'md' | 'json';
 
 interface OutputPanelProps {
   splitRatio: number;
@@ -31,6 +31,7 @@ interface OutputPanelProps {
   treeData: TreeNode | null;
   toonOutput: string;
   mdFromJson: string;
+  jsonFromMd: string;
 }
 
 export function OutputPanel({
@@ -57,6 +58,7 @@ export function OutputPanel({
   jsonError,
   treeData,
   toonOutput,
+  jsonFromMd,
 }: OutputPanelProps) {
 
   const renderOutput = () => {
@@ -76,6 +78,14 @@ export function OutputPanel({
           className="max-w-none text-gray-900"
           dangerouslySetInnerHTML={{ __html: htmlPreview }}
         />
+      );
+    }
+
+    if (outputTab === 'json') {
+      return (
+        <pre className="text-sm font-mono whitespace-pre-wrap break-words text-gray-900">
+          {jsonFromMd || 'Converting...'}
+        </pre>
       );
     }
 
