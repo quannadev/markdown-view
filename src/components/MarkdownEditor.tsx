@@ -391,6 +391,19 @@ export default function MarkdownEditor() {
           return;
         } catch {}
       }
+      // Convert literal \n, \t escape sequences to actual newlines/tabs
+      if (text.includes('\\n') || text.includes('\\t')) {
+        e.preventDefault();
+        const converted = text.replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+        const fullPrev = fullContentRef.current || markdown;
+        const newContent = fullPrev.substring(0, start) + converted + fullPrev.substring(end);
+        setContentWithTruncation(newContent);
+        setTimeout(() => {
+          textarea.selectionStart = textarea.selectionEnd = start + converted.length;
+          textarea.focus();
+        }, 0);
+        return;
+      }
     }
 
     const insertText = (textToInsert: string) => {
