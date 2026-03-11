@@ -1,12 +1,16 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Book, Copy, Check, FileDown, Upload, Plus, Trash2, Maximize2, ArrowUp, AlertTriangle } from 'lucide-react';
+import { Upload, ArrowUp } from 'lucide-react';
 import { useParseWorker } from '@/hooks/useParseWorker';
 import { useExtractWorker } from '@/hooks/useExtractWorker';
-import { TreeNodeView } from '@/components/TreeNodeView';
-import { ApiDocs } from '@/components/ApiDocs';
+
 import { ReadingModeModal } from '@/components/ReadingModeModal';
+import { EditorHeader } from '@/components/EditorHeader';
+import { AppFooter } from '@/components/AppFooter';
+import { InputPanel } from '@/components/InputPanel';
+import { OutputPanel } from '@/components/OutputPanel';
+import { SplitDragHandle } from '@/components/SplitDragHandle';
 import {
   updateDocument,
   getDocuments,
@@ -18,9 +22,7 @@ import {
 } from '@/lib/storage';
 import { TreeNode } from '@/lib/json';
 
-type AppMode = 'editor' | 'api';
 type OutputTab = 'formatted' | 'tree' | 'toon' | 'md';
-
 
 const LARGE_FILE_LINE_LIMIT = 1000;
 
@@ -37,10 +39,8 @@ function truncateContent(content: string, lineLimit: number): { display: string;
   };
 }
 
-
-
 export default function MarkdownEditor() {
-  const [mode, setMode] = useState<AppMode>('editor');
+
   const [markdown, setMarkdown] = useState('');
   const [htmlPreview, setHtmlPreview] = useState('');
   const [documentName, setDocumentName] = useState('Untitled');
@@ -49,6 +49,10 @@ export default function MarkdownEditor() {
   const [showPreview, setShowPreview] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isNewDocument, setIsNewDocument] = useState(true);
+  const [isDragging, setIsDragging] = useState(false);
+  const [splitRatio, setSplitRatio] = useState(50);
+  const [isDraggingSplit, setIsDraggingSplit] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [outputTab, setOutputTab] = useState<OutputTab>('md');
@@ -106,7 +110,6 @@ export default function MarkdownEditor() {
   useEffect(() => {
     const content = fullContentRef.current || markdown;
     const trimmed = content.trim();
-    // Quick check on main thread — only call worker if it looks like JSON
     if (!trimmed || !(trimmed.startsWith('{') || trimmed.startsWith('['))) {
       setIsJsonContent(false);
       return;
@@ -150,7 +153,6 @@ export default function MarkdownEditor() {
 
     const timer = setTimeout(async () => {
       try {
-        // Truncate for preview performance on large files
         const previewContent = previewTruncation.isTruncated ? previewTruncation.display : markdown;
         const result = await runWorker<string>('MD_PARSE', { content: previewContent, format: 'markdown' });
         setHtmlPreview(result);
@@ -274,11 +276,7 @@ export default function MarkdownEditor() {
 
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // JSON files: read as text and auto-format
+  const processFile = useCallback((file: File) => {
     if (file.name.endsWith('.json') || file.type === 'application/json') {
       setIsProcessing(true);
       const reader = new FileReader();
@@ -298,11 +296,9 @@ export default function MarkdownEditor() {
         setIsProcessing(false);
       };
       reader.readAsText(file);
-      if (fileRef.current) fileRef.current.value = '';
       return;
     }
 
-    // Other files: extract via worker (CSV, Excel, PDF, DOCX, etc.)
     setIsProcessing(true);
     const reader = new FileReader();
     reader.onload = async (ev) => {
@@ -328,8 +324,34 @@ export default function MarkdownEditor() {
       }
     };
     reader.readAsArrayBuffer(file);
-    if (fileRef.current) fileRef.current.value = '';
   }, [runWorker, runExtract]);
+
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    processFile(file);
+    if (fileRef.current) fileRef.current.value = '';
+  }, [processFile]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processFile(file);
+  }, [processFile]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
 
   const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const textarea = e.currentTarget;
@@ -357,7 +379,6 @@ export default function MarkdownEditor() {
         try {
           JSON.parse(text);
           e.preventDefault();
-          // Auto-format JSON and switch to formatted output
           setIsProcessing(true);
           try {
             const formatted = await runWorker<string>('JSON_FORMAT', text);
@@ -424,7 +445,6 @@ export default function MarkdownEditor() {
     }
 
     try {
-      // Generate HTML on demand: for JSON content, convert to markdown first
       let html: string;
       if (isJsonContent) {
         const md = await runWorker<string>('JSON_TO_MD', content);
@@ -499,6 +519,56 @@ export default function MarkdownEditor() {
     }
   }, [currentDocId, handleNewDocument]);
 
+  const handleReadingMode = useCallback(async () => {
+    setIsFullscreen(true);
+    if (!isJsonContent) {
+      const content = fullContentRef.current || markdown;
+      try {
+        const html = await runWorker<string>('MD_PARSE', { content, format: 'markdown' });
+        setFullscreenHtml(html);
+      } catch {
+        setFullscreenHtml(htmlPreview);
+      }
+    }
+  }, [isJsonContent, markdown, htmlPreview, runWorker]);
+
+  const handlePrint = useCallback(async () => {
+    let html = htmlPreview;
+    if (!isJsonContent) {
+      const content = fullContentRef.current || markdown;
+      try {
+        html = await runWorker<string>('MD_PARSE', { content, format: 'markdown' });
+      } catch { /* use current preview */ }
+    } else if (mdFromJsonHtml) {
+      html = mdFromJsonHtml;
+    }
+    const styles = Array.from(document.styleSheets)
+      .map(s => { try { return Array.from(s.cssRules).map(r => r.cssText).join('\n'); } catch { return ''; } })
+      .join('\n');
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    printWindow.document.write(`<!DOCTYPE html><html><head>
+      <title>https://mdview.quanna.dev</title>
+      <style>${styles}
+      :root { --background: #ffffff; --foreground: #171717; }
+      @media (prefers-color-scheme: dark) { :root { --background: #ffffff; --foreground: #171717; } }
+      body { background: white !important; color: #1f2937 !important; margin: 0; padding: 20px; font-family: system-ui, -apple-system, sans-serif; }
+      article { max-width: 100%; color: #1f2937 !important; }
+      article * { color: inherit; }
+      article h1, article h2, article h3, article h4, article h5, article h6 { color: #111827 !important; }
+      article code { color: #dc2626 !important; }
+      article pre { color: #f9fafb !important; }
+      article pre code { color: inherit !important; }
+      article a { color: #3b82f6 !important; }
+      </style>
+    </head><body>
+      <article>${html}</article>
+    </body></html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => { printWindow.print(); printWindow.close(); }, 300);
+  }, [htmlPreview, isJsonContent, markdown, mdFromJsonHtml, runWorker]);
+
   // Available output tabs based on content
   const availableTabs = useMemo((): { key: OutputTab; label: string }[] => {
     const tabs: { key: OutputTab; label: string }[] = [
@@ -514,313 +584,105 @@ export default function MarkdownEditor() {
     return tabs;
   }, [isJsonContent]);
 
-  const renderOutput = () => {
-    if (outputTab === 'md') {
-      if (isJsonContent) {
-        // JSON → Markdown conversion
-        return mdFromJsonHtml ? (
-          <article
-            className="max-w-none text-gray-900"
-            dangerouslySetInnerHTML={{ __html: mdFromJsonHtml }}
-          />
-        ) : (
-          <div className="text-gray-400 text-sm">Converting...</div>
-        );
-      }
-      // Regular markdown/text → rendered HTML
-      return (
-        <article
-          className="max-w-none text-gray-900"
-          dangerouslySetInnerHTML={{ __html: htmlPreview }}
-        />
-      );
-    }
-
-    if (!isJsonContent) {
-      return <div className="text-gray-400 text-sm">Not valid JSON</div>;
-    }
-
-    if (jsonError) {
-      return <div className="text-red-500 text-sm font-mono">{jsonError}</div>;
-    }
-
-    if (!parsedJson) {
-      return <div className="text-gray-400 text-sm">Parsing...</div>;
-    }
-
-    if (outputTab === 'tree') {
-      return (
-        <div className="text-sm font-mono">
-          {treeData ? <TreeNodeView node={treeData} /> : 'Building tree...'}
-        </div>
-      );
-    }
-    if (outputTab === 'toon') {
-      return (
-        <pre className="text-sm font-mono whitespace-pre-wrap break-words text-gray-900">
-          {toonOutput || 'Converting...'}
-        </pre>
-      );
-    }
-    // formatted
-    return (
-      <pre className="text-sm font-mono whitespace-pre-wrap break-words text-gray-900">
-        {JSON.stringify(parsedJson, null, 2)}
-      </pre>
-    );
-  };
-
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-gradient-to-r from-blue-600 to-purple-600 border-b-4 border-blue-800 sticky top-0 z-50 shadow-lg">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <h1 className="text-3xl font-black text-white drop-shadow">MDView</h1>
-              <span className="text-white/60 text-xs font-semibold hidden sm:inline">v0.1.0</span>
-            </div>
-            {mode === 'editor' && stats.chars > 0 && (
-              <div className="hidden md:flex gap-3 text-xs text-white/90 font-mono bg-black/20 px-3 py-1.5 rounded-lg border border-white/10 shadow-inner">
-                <span title="Characters">{stats.chars.toLocaleString()} c</span>
-                <span className="opacity-30">|</span>
-                <span title="Words">{stats.words.toLocaleString()} w</span>
-                <span className="opacity-30">|</span>
-                <span title="Tokens (GPT-3/4)">{stats.tokens.toLocaleString()} t</span>
-                <span className="opacity-30">|</span>
-                <span title="Lines">{stats.lines.toLocaleString()} l</span>
-                {isJsonContent && (
-                  <>
-                    <span className="opacity-30">|</span>
-                    <span title="JSON Items">{stats.items.toLocaleString()} i</span>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="flex gap-1 bg-white/10 rounded-lg p-1">
-            {(['editor', 'api'] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setMode(tab)}
-                className={`px-4 py-1.5 rounded-md font-bold text-sm transition ${
-                  mode === tab
-                    ? 'bg-white text-purple-700 shadow'
-                    : 'text-white/80 hover:text-white hover:bg-white/10'
-                }`}
-              >
-                {tab === 'editor' ? 'Editor' : 'API'}
-              </button>
-            ))}
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-white">
+      <EditorHeader />
 
-      <main className="w-full bg-gray-50 py-8">
-        {mode === 'api' ? (
-          <ApiDocs />
-        ) : (
+      <main
+        className="w-full py-4 pb-20 print:py-0 print:pb-0 relative"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {/* Drag overlay */}
+        {isDragging && (
+          <div className="absolute inset-0 z-40 bg-white/90 border-2 border-dashed border-gray-400 rounded-lg flex items-center justify-center pointer-events-none">
+            <div className="text-center">
+              <Upload size={32} className="mx-auto text-gray-400 mb-2" />
+              <p className="text-sm text-gray-500 font-medium">Drop file here</p>
+              <p className="text-xs text-gray-400">CSV, Excel, PDF, Word, JSON, Markdown</p>
+            </div>
+          </div>
+        )}
         <div className="w-full px-4 sm:px-6 lg:px-8">
           <div
-            className={`grid gap-6 ${
+            ref={containerRef}
+            className={`flex gap-4 lg:gap-0 ${
               showPreview
-                ? 'grid-cols-1 lg:grid-cols-2'
-                : 'grid-cols-1'
+                ? 'flex-col lg:flex-row'
+                : 'flex-col'
             }`}
+            style={{ minHeight: 'calc(100vh - 120px)' }}
           >
-            {/* Input */}
-            <div className="bg-white rounded-lg border-2 border-gray-300 overflow-hidden shadow-lg flex flex-col relative">
-              {isProcessing && (
-                <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center">
-                  <div className="bg-white px-4 py-2 rounded-lg shadow-md border border-gray-200 font-bold text-blue-600 animate-pulse">
-                    Processing...
-                  </div>
-                </div>
-              )}
-              <div className="bg-gradient-to-r from-blue-600 to-blue-700 border-b-2 border-blue-800 px-4 py-3 flex justify-between items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-white">Input</h3>
-                  {isJsonContent && (
-                    <span className="px-2 py-0.5 bg-amber-400 text-amber-900 rounded text-xs font-bold">JSON</span>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => fileRef.current?.click()}
-                    className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition transform hover:scale-110 active:scale-95 flex items-center justify-center"
-                    title="Upload File"
-                  >
-                    <Upload size={20} />
-                  </button>
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept=".csv,.xls,.xlsx,.doc,.docx,.pdf,.txt,.md,.html,.htm,.json"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
-                </div>
-              </div>
-              <div className="relative flex-1 flex flex-col">
-                <textarea
-                  ref={inputRef}
-                  value={markdown}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    fullContentRef.current = val;
-                    setMarkdown(val);
-                  }}
-                  onPaste={handlePaste}
-                  onScroll={checkScroll}
-                  placeholder="Paste content here — Markdown, JSON, HTML, or upload a file..."
-                  className="w-full h-96 xl:h-screen p-4 font-mono text-sm resize-none focus:outline-none bg-gray-50 text-gray-900 placeholder-gray-400 border-0 focus:bg-white focus:ring-0 transition-colors flex-1"
-                  spellCheck={!isJsonContent}
-                />
-              </div>
-            </div>
+            <InputPanel
+              markdown={markdown}
+              setMarkdown={setMarkdown}
+              fullContentRef={fullContentRef}
+              inputRef={inputRef}
+              fileRef={fileRef}
+              isJsonContent={isJsonContent}
+              isProcessing={isProcessing}
+              showPreview={showPreview}
+              splitRatio={splitRatio}
+              handleFileUpload={handleFileUpload}
+              handlePaste={handlePaste}
+              checkScroll={checkScroll}
+              stats={stats}
+            />
 
-            {/* Output */}
             {showPreview && (
-              <div className="bg-white rounded-lg border-2 border-gray-300 overflow-hidden shadow-lg flex flex-col">
-                <div className={`bg-gradient-to-r ${outputTab !== 'md' ? 'from-teal-600 to-teal-700 border-b-2 border-teal-800' : 'from-green-600 to-green-700 border-b-2 border-green-800'} px-4 py-3 flex justify-between items-center gap-2`}>
-                  <div className="flex gap-1">
-                    {availableTabs.map((tab) => (
-                      <button
-                        key={tab.key}
-                        onClick={() => setOutputTab(tab.key)}
-                        className={`px-3 py-1 rounded font-bold text-xs transition ${
-                          outputTab === tab.key
-                            ? 'bg-white text-gray-700 shadow'
-                            : 'bg-white/20 hover:bg-white/30 text-white'
-                        }`}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex gap-1">
-                    {outputTab === 'md' && toc.length > 0 && (
-                      <button
-                        onClick={() => setShowToc(!showToc)}
-                        className={`p-2 rounded-full transition transform hover:scale-110 active:scale-95 flex items-center justify-center ${
-                          showToc
-                            ? 'text-white bg-white/20'
-                            : 'text-white/80 hover:text-white hover:bg-white/10'
-                        }`}
-                        title={showToc ? 'Hide TOC' : 'Show TOC'}
-                      >
-                        <Book size={20} />
-                      </button>
-                    )}
-                    <button
-                      onClick={handleCopyOutput}
-                      className={`p-2 rounded-full transition transform hover:scale-110 active:scale-95 flex items-center justify-center ${
-                        isCopied
-                          ? 'text-green-300'
-                          : 'text-white/80 hover:text-white hover:bg-white/10'
-                      }`}
-                      title={isCopied ? 'Copied' : 'Copy Output'}
-                    >
-                      {isCopied ? <Check size={20} /> : <Copy size={20} />}
-                    </button>
-                    <button
-                      onClick={handleExportPDF}
-                      className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition transform hover:scale-110 active:scale-95 flex items-center justify-center"
-                      title="Export PDF"
-                    >
-                      <FileDown size={20} />
-                    </button>
-                    {outputTab === 'md' && (
-                      <button
-                        onClick={async () => {
-                          setIsFullscreen(true);
-                          // Lazy parse full content for reading mode
-                          if (!isJsonContent) {
-                            const content = fullContentRef.current || markdown;
-                            try {
-                              const html = await runWorker<string>('MD_PARSE', { content, format: 'markdown' });
-                              setFullscreenHtml(html);
-                            } catch {
-                              setFullscreenHtml(htmlPreview);
-                            }
-                          }
-                        }}
-                        className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition transform hover:scale-110 active:scale-95 flex items-center justify-center"
-                        title="Reading Mode"
-                      >
-                        <Maximize2 size={20} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-                {previewTruncation.isTruncated && outputTab === 'md' && !isJsonContent && (
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50/80 border-b border-amber-100 text-amber-700 text-xs">
-                    <AlertTriangle size={12} className="flex-shrink-0" />
-                    <span>Preview limited to {LARGE_FILE_LINE_LIMIT.toLocaleString()} / {previewTruncation.totalLines.toLocaleString()} lines</span>
-                  </div>
-                )}
-                <div className="h-96 xl:h-screen overflow-hidden p-4 bg-white flex-1 flex gap-4 relative">
-                  {outputTab === 'md' && showToc && toc.length > 0 && (
-                    <div className="w-64 flex-shrink-0 border-r border-gray-200 pr-4 overflow-y-auto">
-                      <h4 className="font-bold text-gray-700 mb-4 uppercase text-xs tracking-wider sticky top-0 bg-white py-2">Table of Contents</h4>
-                      <ul className="space-y-2">
-                        {toc.map((item, idx) => (
-                          <li key={`${item.id}-${idx}`} style={{ paddingLeft: `${(item.level - 1) * 12}px` }}>
-                            <a
-                              href={`#${item.id}`}
-                              className="text-sm text-gray-600 hover:text-blue-600 block truncate transition-colors"
-                              title={item.text}
-                            >
-                              {item.text}
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  <div
-                    ref={outputRef}
-                    onScroll={checkScroll}
-                    className="flex-1 overflow-y-auto pr-2"
-                  >
-                    {renderOutput()}
-                  </div>
-                </div>
-              </div>
+              <SplitDragHandle
+                isDraggingSplit={isDraggingSplit}
+                setIsDraggingSplit={setIsDraggingSplit}
+                setSplitRatio={setSplitRatio}
+                containerRef={containerRef}
+              />
+            )}
+
+            {showPreview && (
+              <OutputPanel
+                splitRatio={splitRatio}
+                outputTab={outputTab}
+                setOutputTab={setOutputTab}
+                availableTabs={availableTabs}
+                showToc={showToc}
+                setShowToc={setShowToc}
+                toc={toc}
+                isCopied={isCopied}
+                handleCopyOutput={handleCopyOutput}
+                handleExportPDF={handleExportPDF}
+                handleReadingMode={handleReadingMode}
+                handlePrint={handlePrint}
+                previewTruncation={previewTruncation}
+                isJsonContent={isJsonContent}
+                largFileLineLimit={LARGE_FILE_LINE_LIMIT}
+                outputRef={outputRef}
+                checkScroll={checkScroll}
+                htmlPreview={htmlPreview}
+                mdFromJsonHtml={mdFromJsonHtml}
+                parsedJson={parsedJson}
+                jsonError={jsonError}
+                treeData={treeData}
+                toonOutput={toonOutput}
+                mdFromJson={mdFromJson}
+              />
             )}
           </div>
         </div>
-        )}
         
         {/* Global Scroll to Top */}
         {showScrollTop && !isFullscreen && (
           <button
             onClick={scrollToTop}
-            className="fixed bottom-8 right-8 p-3 bg-white border-2 border-gray-200 text-gray-600 rounded-full shadow-lg hover:bg-gray-50 hover:text-blue-600 transition-all transform hover:scale-110 active:scale-95 z-40"
+            className="fixed bottom-16 right-6 p-2 bg-white border border-gray-200 text-gray-400 rounded-full hover:text-gray-700 transition z-40 print:hidden"
             title="Scroll to Top"
           >
-            <ArrowUp size={24} />
+            <ArrowUp size={18} />
           </button>
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="bg-white border-t-2 border-gray-200 py-6 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-center items-center gap-4 text-gray-500 text-sm">
-          <a
-            href="https://github.com/quannadev/markdown-view"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-indigo-600 transition flex items-center gap-1 font-semibold"
-          >
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
-            </svg>
-            GitHub
-          </a>
-          <span>Made with ❤️ by quannadev</span>
-        </div>
-      </footer>
+      <AppFooter fixed />
 
       {/* Fullscreen Preview Modal */}
       {isFullscreen && (

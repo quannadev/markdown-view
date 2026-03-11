@@ -1,5 +1,7 @@
 import MarkdownIt from 'markdown-it';
 import anchor from 'markdown-it-anchor';
+import texmath from 'markdown-it-texmath';
+import katex from 'katex';
 
 const md = new MarkdownIt({
   html: true,
@@ -8,7 +10,12 @@ const md = new MarkdownIt({
   breaks: true,
 }).use(anchor, {
   slugify: s => String(s).trim().toLowerCase().replace(/[\s\W-]+/g, '-')
+}).use(texmath, {
+  engine: katex,
+  delimiters: 'dollars',
+  katexOptions: { throwOnError: false },
 });
+
 
 export function parseMarkdown(content: string, format: 'markdown' | 'html' | 'text' = 'markdown'): string {
   if (format === 'html') {
