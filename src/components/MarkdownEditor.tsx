@@ -1,8 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Book, Copy, Check, FileDown, Upload, Plus, Trash2, Maximize2, Minimize2, ArrowUp, AlertTriangle } from 'lucide-react';
+import { Book, Copy, Check, FileDown, Upload, Plus, Trash2, Maximize2, ArrowUp, AlertTriangle } from 'lucide-react';
 import { useParseWorker } from '@/hooks/useParseWorker';
+import { useExtractWorker } from '@/hooks/useExtractWorker';
+import { TreeNodeView } from '@/components/TreeNodeView';
+import { ApiDocs } from '@/components/ApiDocs';
+import { ReadingModeModal } from '@/components/ReadingModeModal';
 import {
   updateDocument,
   getDocuments,
@@ -17,7 +21,6 @@ import { TreeNode } from '@/lib/json';
 type AppMode = 'editor' | 'api';
 type OutputTab = 'formatted' | 'tree' | 'toon' | 'md';
 
-const BASE = 'https://mdview.quanna.dev';
 
 const LARGE_FILE_LINE_LIMIT = 1000;
 
@@ -34,192 +37,7 @@ function truncateContent(content: string, lineLimit: number): { display: string;
   };
 }
 
-const API_EXAMPLES: { label: string; url: string; desc: string }[] = [
-  {
-    label: 'Render Markdown',
-    url: `${BASE}/?content=%23%20Hello%20World%0AThis%20is%20**bold**%20text.&format=markdown`,
-    desc: 'Renders Markdown content as styled HTML',
-  },
-  {
-    label: 'Format JSON',
-    url: `${BASE}/?content=%7B%22name%22%3A%22MDView%22%2C%22version%22%3A1%7D&format=json`,
-    desc: 'Pretty-prints JSON with 2-space indentation',
-  },
-  {
-    label: 'Convert JSON to TOON',
-    url: `${BASE}/?content=%7B%22name%22%3A%22MDView%22%2C%22users%22%3A%5B%7B%22id%22%3A1%2C%22role%22%3A%22admin%22%7D%2C%7B%22id%22%3A2%2C%22role%22%3A%22user%22%7D%5D%7D&format=toon`,
-    desc: 'Converts JSON to Token-Oriented Object Notation for AI prompts',
-  },
-  {
-    label: 'Render HTML',
-    url: `${BASE}/?content=%3Ch1%3EHello%3C%2Fh1%3E%3Cp%3ERaw%20HTML%20render%3C%2Fp%3E&format=html`,
-    desc: 'Renders raw HTML content directly',
-  },
-];
 
-function TreeNodeView({ node, depth = 0 }: { node: TreeNode; depth?: number }) {
-  const [expanded, setExpanded] = useState(depth < 2);
-  const hasChildren = node.children && node.children.length > 0;
-
-  return (
-    <div style={{ paddingLeft: depth > 0 ? 16 : 0 }}>
-      <div
-        className={`flex items-start gap-1 py-0.5 ${hasChildren ? 'cursor-pointer hover:bg-gray-100 rounded' : ''}`}
-        onClick={hasChildren ? () => setExpanded(!expanded) : undefined}
-      >
-        {hasChildren && (
-          <span className="text-gray-400 w-4 text-center flex-shrink-0 select-none">
-            {expanded ? '▼' : '▶'}
-          </span>
-        )}
-        {!hasChildren && <span className="w-4 flex-shrink-0" />}
-        <span className="json-key font-semibold">{node.key}</span>
-        <span className="text-gray-400 mx-0.5">:</span>
-        {hasChildren ? (
-          <span className="text-gray-500 text-xs">{String(node.value)}</span>
-        ) : (
-          <span className={`json-value-${node.type}`}>
-            {node.type === 'string' ? `"${String(node.value)}"` : String(node.value)}
-          </span>
-        )}
-      </div>
-      {hasChildren && expanded && (
-        <div>
-          {node.children!.map((child, i) => (
-            <TreeNodeView key={`${child.key}-${i}`} node={child} depth={depth + 1} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ApiDocs() {
-  return (
-    <div className="w-full px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="bg-white rounded-lg border-2 border-gray-300 shadow-lg overflow-hidden">
-          <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 border-b-2 border-indigo-800 px-6 py-4">
-            <h2 className="text-lg font-bold text-white">URL API</h2>
-            <p className="text-indigo-200 text-sm mt-1">
-              Format content via URL query parameters - no UI needed
-            </p>
-          </div>
-
-          <div className="p-6 space-y-6">
-            <section>
-              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">Usage</h3>
-              <div className="bg-gray-900 rounded-lg p-4 font-mono text-sm text-gray-100 overflow-x-auto">
-                {BASE}/?<span className="text-green-400">content</span>=...&<span className="text-green-400">format</span>=<span className="text-yellow-300">json</span> | <span className="text-yellow-300">toon</span> | <span className="text-yellow-300">markdown</span> | <span className="text-yellow-300">html</span>
-              </div>
-            </section>
-
-            <section>
-              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">Parameters</h3>
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-2 text-left font-bold text-gray-700">Param</th>
-                      <th className="px-4 py-2 text-left font-bold text-gray-700">Required</th>
-                      <th className="px-4 py-2 text-left font-bold text-gray-700">Description</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="border-t border-gray-200">
-                      <td className="px-4 py-2 font-mono text-indigo-600">content</td>
-                      <td className="px-4 py-2">Yes</td>
-                      <td className="px-4 py-2 text-gray-600">URL-encoded content to process. Use <code className="bg-gray-100 px-1 rounded text-xs">encodeURIComponent()</code></td>
-                    </tr>
-                    <tr className="border-t border-gray-200">
-                      <td className="px-4 py-2 font-mono text-indigo-600">format</td>
-                      <td className="px-4 py-2">Yes</td>
-                      <td className="px-4 py-2 text-gray-600">
-                        <span className="font-mono text-xs bg-gray-100 px-1 rounded">json</span>{' '}
-                        <span className="font-mono text-xs bg-gray-100 px-1 rounded">toon</span>{' '}
-                        <span className="font-mono text-xs bg-gray-100 px-1 rounded">markdown</span>{' '}
-                        <span className="font-mono text-xs bg-gray-100 px-1 rounded">html</span>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <section>
-              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">Formats</h3>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {[
-                  { name: 'json', desc: 'Pretty-print JSON (2-space indent)' },
-                  { name: 'toon', desc: 'Convert JSON to TOON for AI/LLM prompts' },
-                  { name: 'markdown', desc: 'Render Markdown as styled HTML' },
-                  { name: 'html', desc: 'Render raw HTML directly' },
-                ].map((f) => (
-                  <div key={f.name} className="border border-gray-200 rounded-lg p-3">
-                    <span className="font-mono font-bold text-indigo-600 text-sm">{f.name}</span>
-                    <p className="text-gray-600 text-xs mt-1">{f.desc}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-              <p className="text-amber-800 text-sm">
-                <strong>Note:</strong> Special characters must be URL-encoded. Use{' '}
-                <code className="bg-amber-100 px-1 rounded text-xs">encodeURIComponent()</code> in JavaScript or encode manually:{' '}
-                <code className="bg-amber-100 px-1 rounded text-xs">#</code> ={'>'}{' '}
-                <code className="bg-amber-100 px-1 rounded text-xs">%23</code>,{' '}
-                <code className="bg-amber-100 px-1 rounded text-xs">{`{`}</code> ={'>'}{' '}
-                <code className="bg-amber-100 px-1 rounded text-xs">%7B</code>,{' '}
-                <code className="bg-amber-100 px-1 rounded text-xs">space</code> ={'>'}{' '}
-                <code className="bg-amber-100 px-1 rounded text-xs">%20</code>
-              </p>
-            </section>
-
-            <section>
-              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">Try it</h3>
-              <div className="space-y-3">
-                {API_EXAMPLES.map((ex) => (
-                  <div key={ex.label} className="border border-gray-200 rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="font-bold text-sm text-gray-800">{ex.label}</h4>
-                      <a
-                        href={ex.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-bold text-xs transition"
-                      >
-                        Open
-                      </a>
-                    </div>
-                    <p className="text-gray-500 text-xs mb-2">{ex.desc}</p>
-                    <div className="bg-gray-50 rounded p-2 font-mono text-xs text-gray-700 break-all">
-                      {ex.url}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section>
-              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">JavaScript Example</h3>
-              <pre className="bg-gray-900 rounded-lg p-4 font-mono text-sm text-gray-100 overflow-x-auto">{`const content = encodeURIComponent(JSON.stringify({
-  name: "MDView",
-  features: ["markdown", "json", "toon"]
-}));
-
-// Open formatted JSON
-window.open(\`${BASE}/?content=\${content}&format=json\`);
-
-// Open TOON conversion
-window.open(\`${BASE}/?content=\${content}&format=toon\`);`}</pre>
-            </section>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function MarkdownEditor() {
   const [mode, setMode] = useState<AppMode>('editor');
@@ -238,10 +56,10 @@ export default function MarkdownEditor() {
   const [toc, setToc] = useState<{ id: string; text: string; level: number }[]>([]);
   const [stats, setStats] = useState({ chars: 0, words: 0, lines: 0, items: 0, tokens: 0 });
   const [showScrollTop, setShowScrollTop] = useState(false);
-  const [isTruncated, setIsTruncated] = useState(false);
-  const [totalLines, setTotalLines] = useState(0);
+
   const [fullscreenHtml, setFullscreenHtml] = useState<string | null>(null);
   const runWorker = useParseWorker();
+  const runExtract = useExtractWorker();
 
   const fullContentRef = useRef<string>('');
   const outputRef = useRef<HTMLDivElement>(null);
@@ -273,27 +91,38 @@ export default function MarkdownEditor() {
   const [mdFromJson, setMdFromJson] = useState<string>('');
   const [mdFromJsonHtml, setMdFromJsonHtml] = useState<string>('');
 
-  // Helper to set content with truncation
+  // Derived preview truncation state
+  const previewTruncation = useMemo(() => truncateContent(markdown, LARGE_FILE_LINE_LIMIT), [markdown]);
+
+  // Helper to set content (full content in state, truncation only for preview)
   const setContentWithTruncation = useCallback((content: string) => {
     fullContentRef.current = content;
-    const result = truncateContent(content, LARGE_FILE_LINE_LIMIT);
-    setMarkdown(result.display);
-    setIsTruncated(result.isTruncated);
-    setTotalLines(result.totalLines);
+    setMarkdown(content);
   }, []);
 
-  // Auto-detect if content is valid JSON
-  const isJsonContent = useMemo(() => {
-    const trimmed = markdown.trim();
-    if (!trimmed) return false;
-    if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return false;
-    try {
-      JSON.parse(trimmed);
-      return true;
-    } catch {
-      return false;
+  // Auto-detect if content is valid JSON (offloaded to worker)
+  const [isJsonContent, setIsJsonContent] = useState(false);
+
+  useEffect(() => {
+    const content = fullContentRef.current || markdown;
+    const trimmed = content.trim();
+    // Quick check on main thread — only call worker if it looks like JSON
+    if (!trimmed || !(trimmed.startsWith('{') || trimmed.startsWith('['))) {
+      setIsJsonContent(false);
+      return;
     }
-  }, [markdown]);
+
+    const timer = setTimeout(async () => {
+      try {
+        const result = await runExtract<boolean>('JSON_DETECT', content);
+        setIsJsonContent(result);
+      } catch {
+        setIsJsonContent(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [markdown, runExtract]);
 
   // Load documents from storage
   useEffect(() => {
@@ -321,7 +150,9 @@ export default function MarkdownEditor() {
 
     const timer = setTimeout(async () => {
       try {
-        const result = await runWorker<string>('MD_PARSE', { content: markdown, format: 'markdown' });
+        // Truncate for preview performance on large files
+        const previewContent = previewTruncation.isTruncated ? previewTruncation.display : markdown;
+        const result = await runWorker<string>('MD_PARSE', { content: previewContent, format: 'markdown' });
         setHtmlPreview(result);
       } catch (e) {
         console.error('Markdown parse error:', e);
@@ -471,17 +302,19 @@ export default function MarkdownEditor() {
       return;
     }
 
-    // Other files: extract with kreuzberg
+    // Other files: extract via worker (CSV, Excel, PDF, DOCX, etc.)
     setIsProcessing(true);
     const reader = new FileReader();
     reader.onload = async (ev) => {
       try {
         const buffer = ev.target?.result as ArrayBuffer;
-        const data = new Uint8Array(buffer);
         const mimeType = file.type || 'text/plain';
 
-        const { extractFile } = await import('@/lib/extract');
-        const result = await extractFile(data, mimeType, file.name);
+        const result = await runExtract<string>('EXTRACT_FILE', {
+          data: buffer,
+          mimeType,
+          fileName: file.name,
+        }, [buffer]);
         setContentWithTruncation(result);
         setOutputTab('md');
         setDocumentName(file.name);
@@ -496,7 +329,7 @@ export default function MarkdownEditor() {
     };
     reader.readAsArrayBuffer(file);
     if (fileRef.current) fileRef.current.value = '';
-  }, [runWorker]);
+  }, [runWorker, runExtract]);
 
   const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const textarea = e.currentTarget;
@@ -506,13 +339,13 @@ export default function MarkdownEditor() {
 
     let mimeType: string | null = null;
     let contentToExtract: string | null = null;
-    let fileData: Uint8Array | null = null;
+    let fileData: ArrayBuffer | null = null;
 
     if (e.clipboardData.files && e.clipboardData.files.length > 0) {
       e.preventDefault();
       const file = e.clipboardData.files[0];
       const buffer = await file.arrayBuffer();
-      fileData = new Uint8Array(buffer);
+      fileData = buffer;
       mimeType = file.type || 'text/plain';
     } else if (types.includes('text/html')) {
       e.preventDefault();
@@ -552,8 +385,10 @@ export default function MarkdownEditor() {
     if (fileData && mimeType) {
       setIsProcessing(true);
       try {
-        const { extractFile } = await import('@/lib/extract');
-        const result = await extractFile(fileData, mimeType);
+        const result = await runExtract<string>('EXTRACT_FILE', {
+          data: fileData,
+          mimeType,
+        }, [fileData as ArrayBuffer]);
         insertText(result);
       } catch (err) {
         console.error(err);
@@ -563,9 +398,13 @@ export default function MarkdownEditor() {
     } else if (contentToExtract && mimeType) {
       setIsProcessing(true);
       try {
-        const { extractFile } = await import('@/lib/extract');
-        const data = new TextEncoder().encode(contentToExtract);
-        const result = await extractFile(data, mimeType);
+        const encoder = new TextEncoder();
+        const data = encoder.encode(contentToExtract);
+        const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+        const result = await runExtract<string>('EXTRACT_FILE', {
+          data: buffer,
+          mimeType,
+        }, [buffer]);
         insertText(result);
       } catch (err) {
         console.error(err);
@@ -574,7 +413,7 @@ export default function MarkdownEditor() {
         setIsProcessing(false);
       }
     }
-  }, [runWorker]);
+  }, [runWorker, runExtract]);
 
 
   const handleExportPDF = useCallback(async () => {
@@ -634,8 +473,6 @@ export default function MarkdownEditor() {
   const handleNewDocument = useCallback(() => {
     fullContentRef.current = '';
     setMarkdown('');
-    setIsTruncated(false);
-    setTotalLines(0);
     setDocumentName(`Untitled-${Date.now()}`);
     setCurrentDocId(null);
     setIsNewDocument(true);
@@ -825,33 +662,13 @@ export default function MarkdownEditor() {
                 </div>
               </div>
               <div className="relative flex-1 flex flex-col">
-                {isTruncated && (
-                  <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm">
-                    <AlertTriangle size={16} className="flex-shrink-0 text-amber-500" />
-                    <span>
-                      File too large ({totalLines.toLocaleString()} lines). Only showing first {LARGE_FILE_LINE_LIMIT.toLocaleString()} lines.
-                      <strong> Copy & Reading Mode</strong> will include all content.
-                    </span>
-                  </div>
-                )}
                 <textarea
                   ref={inputRef}
                   value={markdown}
                   onChange={(e) => {
                     const val = e.target.value;
-                    if (isTruncated) {
-                      // When truncated, update both the display and the full content
-                      // Only the first LARGE_FILE_LINE_LIMIT lines are editable
-                      const truncatedOld = truncateContent(fullContentRef.current, LARGE_FILE_LINE_LIMIT).display;
-                      const remainingLines = fullContentRef.current.split('\n').slice(LARGE_FILE_LINE_LIMIT);
-                      if (truncatedOld !== val) {
-                        fullContentRef.current = val + '\n' + remainingLines.join('\n');
-                      }
-                      setMarkdown(val);
-                    } else {
-                      fullContentRef.current = val;
-                      setMarkdown(val);
-                    }
+                    fullContentRef.current = val;
+                    setMarkdown(val);
                   }}
                   onPaste={handlePaste}
                   onScroll={checkScroll}
@@ -936,6 +753,12 @@ export default function MarkdownEditor() {
                     )}
                   </div>
                 </div>
+                {previewTruncation.isTruncated && outputTab === 'md' && !isJsonContent && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50/80 border-b border-amber-100 text-amber-700 text-xs">
+                    <AlertTriangle size={12} className="flex-shrink-0" />
+                    <span>Preview limited to {LARGE_FILE_LINE_LIMIT.toLocaleString()} / {previewTruncation.totalLines.toLocaleString()} lines</span>
+                  </div>
+                )}
                 <div className="h-96 xl:h-screen overflow-hidden p-4 bg-white flex-1 flex gap-4 relative">
                   {outputTab === 'md' && showToc && toc.length > 0 && (
                     <div className="w-64 flex-shrink-0 border-r border-gray-200 pr-4 overflow-y-auto">
@@ -1001,62 +824,14 @@ export default function MarkdownEditor() {
 
       {/* Fullscreen Preview Modal */}
       {isFullscreen && (
-        <div className="fixed inset-0 z-50 bg-gray-50 overflow-hidden flex flex-col">
-          <div className="flex-shrink-0 bg-white border-b-2 border-gray-200 px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center shadow-sm">
-            <h2 className="text-xl font-bold text-gray-800">Reading Mode</h2>
-            <div className="flex gap-2">
-              <button
-                onClick={() => { setIsFullscreen(false); setFullscreenHtml(null); }}
-                className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-full transition transform hover:scale-110 active:scale-95 flex items-center justify-center"
-                title="Exit Reading Mode"
-              >
-                <Minimize2 size={24} />
-              </button>
-            </div>
-          </div>
-          <div 
-            className="flex-1 overflow-auto p-4 sm:p-8 relative"
-            onScroll={(e) => setShowScrollTop(e.currentTarget.scrollTop > 300)}
-            ref={(el) => {
-              if (el) {
-                // We reuse the same logic, but need a way to scroll THIS element
-                // For simplicity in this one-off modal, we can just use the element itself
-                // if we wanted to use the scrollToTop function, we'd need to update it
-              }
-            }}
-          >
-            <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-lg border border-gray-200 p-8 sm:p-12">
-              {isJsonContent ? (
-                mdFromJsonHtml ? (
-                  <article
-                    className="max-w-none text-gray-900 prose prose-indigo"
-                    dangerouslySetInnerHTML={{ __html: mdFromJsonHtml }}
-                  />
-                ) : (
-                  <div className="text-gray-400 text-center py-20">Converting...</div>
-                )
-              ) : fullscreenHtml ? (
-                <article
-                  className="max-w-none text-gray-900 prose prose-indigo"
-                  dangerouslySetInnerHTML={{ __html: fullscreenHtml }}
-                />
-              ) : (
-                <div className="text-gray-400 text-center py-20">Loading full content...</div>
-              )}
-            </div>
-            {showScrollTop && (
-              <button
-                onClick={(e) => {
-                  e.currentTarget.parentElement?.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                className="fixed bottom-8 right-8 p-3 bg-white border-2 border-gray-200 text-gray-600 rounded-full shadow-lg hover:bg-gray-50 hover:text-blue-600 transition-all transform hover:scale-110 active:scale-95 z-50"
-                title="Scroll to Top"
-              >
-                <ArrowUp size={24} />
-              </button>
-            )}
-          </div>
-        </div>
+        <ReadingModeModal
+          isJsonContent={isJsonContent}
+          mdFromJsonHtml={mdFromJsonHtml}
+          fullscreenHtml={fullscreenHtml}
+          showScrollTop={showScrollTop}
+          onClose={() => { setIsFullscreen(false); setFullscreenHtml(null); }}
+          onScroll={(scrollTop) => setShowScrollTop(scrollTop > 300)}
+        />
       )}
     </div>
   );
