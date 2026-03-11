@@ -44,3 +44,6 @@ next-env.d.ts
 dist/
 build/
 node_modules/.wrangler/
+
+# Learn
+tasks/

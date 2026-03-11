@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Book, Copy, Check, FileDown, Upload, Plus, Trash2, Maximize2, Minimize2, ArrowUp } from 'lucide-react';
+import { Book, Copy, Check, FileDown, Upload, Plus, Trash2, Maximize2, Minimize2, ArrowUp, AlertTriangle } from 'lucide-react';
 import { useParseWorker } from '@/hooks/useParseWorker';
 import {
   updateDocument,
@@ -18,6 +18,21 @@ type AppMode = 'editor' | 'api';
 type OutputTab = 'formatted' | 'tree' | 'toon' | 'md';
 
 const BASE = 'https://mdview.quanna.dev';
+
+const LARGE_FILE_LINE_LIMIT = 1000;
+
+function truncateContent(content: string, lineLimit: number): { display: string; isTruncated: boolean; totalLines: number } {
+  const lines = content.split('\n');
+  const totalLines = lines.length;
+  if (totalLines <= lineLimit) {
+    return { display: content, isTruncated: false, totalLines };
+  }
+  return {
+    display: lines.slice(0, lineLimit).join('\n'),
+    isTruncated: true,
+    totalLines,
+  };
+}
 
 const API_EXAMPLES: { label: string; url: string; desc: string }[] = [
   {
@@ -223,8 +238,12 @@ export default function MarkdownEditor() {
   const [toc, setToc] = useState<{ id: string; text: string; level: number }[]>([]);
   const [stats, setStats] = useState({ chars: 0, words: 0, lines: 0, items: 0, tokens: 0 });
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [isTruncated, setIsTruncated] = useState(false);
+  const [totalLines, setTotalLines] = useState(0);
+  const [fullscreenHtml, setFullscreenHtml] = useState<string | null>(null);
   const runWorker = useParseWorker();
 
+  const fullContentRef = useRef<string>('');
   const outputRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -254,6 +273,15 @@ export default function MarkdownEditor() {
   const [mdFromJson, setMdFromJson] = useState<string>('');
   const [mdFromJsonHtml, setMdFromJsonHtml] = useState<string>('');
 
+  // Helper to set content with truncation
+  const setContentWithTruncation = useCallback((content: string) => {
+    fullContentRef.current = content;
+    const result = truncateContent(content, LARGE_FILE_LINE_LIMIT);
+    setMarkdown(result.display);
+    setIsTruncated(result.isTruncated);
+    setTotalLines(result.totalLines);
+  }, []);
+
   // Auto-detect if content is valid JSON
   const isJsonContent = useMemo(() => {
     const trimmed = markdown.trim();
@@ -277,7 +305,7 @@ export default function MarkdownEditor() {
       const doc = getDocument(currentId);
       if (doc) {
         setCurrentDocId(currentId);
-        setMarkdown(doc.content);
+        setContentWithTruncation(doc.content);
         setDocumentName(doc.name);
         setIsNewDocument(false);
       }
@@ -357,16 +385,17 @@ export default function MarkdownEditor() {
     }
   }, [outputTab, parsedJson, runWorker]);
 
-  // Update stats
+  // Update stats (always use full content)
   useEffect(() => {
-    if (!markdown) {
+    const content = fullContentRef.current || markdown;
+    if (!content) {
       setStats({ chars: 0, words: 0, lines: 0, items: 0, tokens: 0 });
       return;
     }
 
     const timer = setTimeout(async () => {
       try {
-        const result = await runWorker<{chars: number, words: number, lines: number, items: number, tokens: number}>('COUNT_STATS', { content: markdown, isJson: isJsonContent });
+        const result = await runWorker<{chars: number, words: number, lines: number, items: number, tokens: number}>('COUNT_STATS', { content, isJson: isJsonContent });
         setStats(result);
       } catch (e) {
         console.error('Stats error:', e);
@@ -399,12 +428,13 @@ export default function MarkdownEditor() {
     }
   }, [outputTab, parsedJson, markdown, runWorker]);
 
-  // Auto-save on interval
+  // Auto-save on interval (save full content)
   useEffect(() => {
-    if (!markdown || isNewDocument || !currentDocId) return;
+    const content = fullContentRef.current || markdown;
+    if (!content || isNewDocument || !currentDocId) return;
 
     const timer = setTimeout(() => {
-      updateDocument(currentDocId, documentName, markdown);
+      updateDocument(currentDocId, documentName, content);
     }, 2000);
 
     return () => clearTimeout(timer);
@@ -425,10 +455,10 @@ export default function MarkdownEditor() {
         const text = ev.target?.result as string;
         try {
           const formatted = await runWorker<string>('JSON_FORMAT', text);
-          setMarkdown(formatted);
+          setContentWithTruncation(formatted);
           setJsonError(null);
         } catch {
-          setMarkdown(text);
+          setContentWithTruncation(text);
         }
         setOutputTab('formatted');
         setDocumentName(file.name);
@@ -452,7 +482,7 @@ export default function MarkdownEditor() {
 
         const { extractFile } = await import('@/lib/extract');
         const result = await extractFile(data, mimeType, file.name);
-        setMarkdown(result);
+        setContentWithTruncation(result);
         setOutputTab('md');
         setDocumentName(file.name);
         setCurrentDocId(null);
@@ -498,9 +528,9 @@ export default function MarkdownEditor() {
           setIsProcessing(true);
           try {
             const formatted = await runWorker<string>('JSON_FORMAT', text);
-            setMarkdown(formatted);
+            setContentWithTruncation(formatted);
           } catch {
-            setMarkdown(text);
+            setContentWithTruncation(text);
           }
           setOutputTab('formatted');
           setIsProcessing(false);
@@ -510,7 +540,9 @@ export default function MarkdownEditor() {
     }
 
     const insertText = (textToInsert: string) => {
-      setMarkdown(prev => prev.substring(0, start) + textToInsert + prev.substring(end));
+      const fullPrev = fullContentRef.current || markdown;
+      const newContent = fullPrev.substring(0, start) + textToInsert + fullPrev.substring(end);
+      setContentWithTruncation(newContent);
       setTimeout(() => {
         textarea.selectionStart = textarea.selectionEnd = start + textToInsert.length;
         textarea.focus();
@@ -546,7 +578,8 @@ export default function MarkdownEditor() {
 
 
   const handleExportPDF = useCallback(async () => {
-    if (!markdown.trim()) {
+    const content = fullContentRef.current || markdown;
+    if (!content.trim()) {
       alert('Cannot export empty document');
       return;
     }
@@ -555,10 +588,10 @@ export default function MarkdownEditor() {
       // Generate HTML on demand: for JSON content, convert to markdown first
       let html: string;
       if (isJsonContent) {
-        const md = await runWorker<string>('JSON_TO_MD', markdown);
+        const md = await runWorker<string>('JSON_TO_MD', content);
         html = await runWorker<string>('MD_PARSE', { content: md, format: 'markdown' });
       } else {
-        html = await runWorker<string>('MD_PARSE', { content: markdown, format: 'markdown' });
+        html = await runWorker<string>('MD_PARSE', { content, format: 'markdown' });
       }
 
       const { exportPDF } = await import('@/lib/pdf');
@@ -571,15 +604,16 @@ export default function MarkdownEditor() {
   }, [markdown, isJsonContent, documentName, runWorker]);
 
   const handleCopyOutput = useCallback(async () => {
+    const fullContent = fullContentRef.current || markdown;
     let text = '';
     if (outputTab === 'formatted' && parsedJson) {
       text = JSON.stringify(parsedJson, null, 2);
     } else if (outputTab === 'toon') {
       text = toonOutput;
     } else if (outputTab === 'md') {
-      text = mdFromJson;
+      text = isJsonContent ? mdFromJson : fullContent;
     } else {
-      text = markdown;
+      text = fullContent;
     }
 
     if (!text.trim()) {
@@ -595,10 +629,13 @@ export default function MarkdownEditor() {
       console.error('Error copying to clipboard:', error);
       alert('Failed to copy');
     }
-  }, [markdown, outputTab, parsedJson, toonOutput, mdFromJson]);
+  }, [markdown, outputTab, parsedJson, toonOutput, mdFromJson, isJsonContent]);
 
   const handleNewDocument = useCallback(() => {
+    fullContentRef.current = '';
     setMarkdown('');
+    setIsTruncated(false);
+    setTotalLines(0);
     setDocumentName(`Untitled-${Date.now()}`);
     setCurrentDocId(null);
     setIsNewDocument(true);
@@ -608,12 +645,12 @@ export default function MarkdownEditor() {
     const doc = getDocument(docId);
     if (doc) {
       setCurrentDocId(docId);
-      setMarkdown(doc.content);
+      setContentWithTruncation(doc.content);
       setDocumentName(doc.name);
       setIsNewDocument(false);
       setCurrentDocument(docId);
     }
-  }, []);
+  }, [setContentWithTruncation]);
 
   const handleDeleteDocument = useCallback((docId: string) => {
     if (confirm('Are you sure you want to delete this document?')) {
@@ -788,10 +825,34 @@ export default function MarkdownEditor() {
                 </div>
               </div>
               <div className="relative flex-1 flex flex-col">
+                {isTruncated && (
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm">
+                    <AlertTriangle size={16} className="flex-shrink-0 text-amber-500" />
+                    <span>
+                      File too large ({totalLines.toLocaleString()} lines). Only showing first {LARGE_FILE_LINE_LIMIT.toLocaleString()} lines.
+                      <strong> Copy & Reading Mode</strong> will include all content.
+                    </span>
+                  </div>
+                )}
                 <textarea
                   ref={inputRef}
                   value={markdown}
-                  onChange={(e) => setMarkdown(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (isTruncated) {
+                      // When truncated, update both the display and the full content
+                      // Only the first LARGE_FILE_LINE_LIMIT lines are editable
+                      const truncatedOld = truncateContent(fullContentRef.current, LARGE_FILE_LINE_LIMIT).display;
+                      const remainingLines = fullContentRef.current.split('\n').slice(LARGE_FILE_LINE_LIMIT);
+                      if (truncatedOld !== val) {
+                        fullContentRef.current = val + '\n' + remainingLines.join('\n');
+                      }
+                      setMarkdown(val);
+                    } else {
+                      fullContentRef.current = val;
+                      setMarkdown(val);
+                    }
+                  }}
                   onPaste={handlePaste}
                   onScroll={checkScroll}
                   placeholder="Paste content here — Markdown, JSON, HTML, or upload a file..."
@@ -854,7 +915,19 @@ export default function MarkdownEditor() {
                     </button>
                     {outputTab === 'md' && (
                       <button
-                        onClick={() => setIsFullscreen(true)}
+                        onClick={async () => {
+                          setIsFullscreen(true);
+                          // Lazy parse full content for reading mode
+                          if (!isJsonContent) {
+                            const content = fullContentRef.current || markdown;
+                            try {
+                              const html = await runWorker<string>('MD_PARSE', { content, format: 'markdown' });
+                              setFullscreenHtml(html);
+                            } catch {
+                              setFullscreenHtml(htmlPreview);
+                            }
+                          }
+                        }}
                         className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition transform hover:scale-110 active:scale-95 flex items-center justify-center"
                         title="Reading Mode"
                       >
@@ -933,7 +1006,7 @@ export default function MarkdownEditor() {
             <h2 className="text-xl font-bold text-gray-800">Reading Mode</h2>
             <div className="flex gap-2">
               <button
-                onClick={() => setIsFullscreen(false)}
+                onClick={() => { setIsFullscreen(false); setFullscreenHtml(null); }}
                 className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-full transition transform hover:scale-110 active:scale-95 flex items-center justify-center"
                 title="Exit Reading Mode"
               >
@@ -962,11 +1035,13 @@ export default function MarkdownEditor() {
                 ) : (
                   <div className="text-gray-400 text-center py-20">Converting...</div>
                 )
-              ) : (
+              ) : fullscreenHtml ? (
                 <article
                   className="max-w-none text-gray-900 prose prose-indigo"
-                  dangerouslySetInnerHTML={{ __html: htmlPreview }}
+                  dangerouslySetInnerHTML={{ __html: fullscreenHtml }}
                 />
+              ) : (
+                <div className="text-gray-400 text-center py-20">Loading full content...</div>
               )}
             </div>
             {showScrollTop && (
