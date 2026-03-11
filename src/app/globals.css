@@ -1,5 +1,6 @@
 @import "tailwindcss";
 
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -61,14 +62,44 @@ article p {
   line-height: 1.75;
 }
 
-article ul,
-article ol {
-  margin-left: 1.5rem;
+article ul {
+  margin-left: 0;
   margin-bottom: 1rem;
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  list-style-position: outside;
 }
 
+article ol {
+  margin-left: 0;
+  margin-bottom: 1rem;
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  list-style-position: outside;
+}
+
+/* Nested lists */
+article ul ul,
+article ol ul,
+article ul ol,
+article ol ol {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+article ul ul { list-style-type: circle; }
+article ul ul ul { list-style-type: square; }
+article ol ol { list-style-type: lower-alpha; }
+article ol ol ol { list-style-type: lower-roman; }
+
 article li {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
+  display: list-item;
+}
+
+article li > ul,
+article li > ol {
+  margin-bottom: 0;
 }
 
 article code {
@@ -120,18 +151,28 @@ article table {
   border-collapse: collapse;
   width: 100%;
   margin-bottom: 1rem;
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 article th,
 article td {
   border: 1px solid #e5e7eb;
-  padding: 0.5rem;
+  padding: 0.5rem 0.75rem;
   text-align: left;
+  white-space: nowrap;
+}
+
+article td {
+  white-space: normal;
+  word-break: break-word;
 }
 
 article th {
   background-color: #f9fafb;
-  font-weight: bold;
+  font-weight: 600;
+  font-size: 0.875rem;
 }
 
 /* JSON tree view */
@@ -154,4 +195,75 @@ article th {
 .json-value-null {
   color: #9ca3af;
   font-style: italic;
+}
+
+/* Print styles — only show rendered markdown content */
+@media print {
+  /* Hide everything non-content */
+  header, footer, nav,
+  [data-print-hide],
+  button, [role="button"] {
+    display: none !important;
+  }
+
+  /* White background everywhere */
+  html, body, main, div {
+    background: white !important;
+    background-color: white !important;
+  }
+
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Hide input panel */
+  main > div > div > div:first-child {
+    display: none !important;
+  }
+
+  /* Full-width single column */
+  main > div > div {
+    display: block !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Remove height constraints */
+  [data-resizable] {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Remove all borders, backgrounds, and shadows on panels */
+  main > div > div > div {
+    border: none !important;
+    box-shadow: none !important;
+    background: white !important;
+    border-radius: 0 !important;
+  }
+
+  /* Hide output toolbar header bar */
+  .bg-gray-50.border-b {
+    display: none !important;
+  }
+
+  /* Clean markdown content */
+  article {
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+
+  .overflow-y-auto {
+    overflow: visible !important;
+  }
+
+  /* Tables print nicely */
+  article table {
+    display: table !important;
+  }
 }

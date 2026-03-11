@@ -1,5 +1,5 @@
 import { formatJson, jsonToToon, jsonToMarkdown, buildTree } from '@/lib/json';
-import { parseMarkdown, autoFormat } from '@/lib/markdown';
+import { parseMarkdown, autoFormat, markdownToJson } from '@/lib/markdown';
 import { encode } from 'gpt-tokenizer';
 
 self.addEventListener('message', async (e) => {
@@ -25,6 +25,9 @@ self.addEventListener('message', async (e) => {
         break;
       case 'MD_PARSE':
         result = parseMarkdown(payload.content, payload.format);
+        break;
+      case 'MD_TO_JSON':
+        result = markdownToJson(payload);
         break;
       case 'MD_FORMAT':
         result = autoFormat(payload);
