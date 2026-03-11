@@ -572,7 +572,7 @@ export default function MarkdownEditor() {
       console.error('Error copying to clipboard:', error);
       showToast('Failed to copy', 'error');
     }
-  }, [markdown, outputTab, parsedJson, toonOutput, mdFromJson, isJsonContent]);
+  }, [markdown, outputTab, parsedJson, toonOutput, mdFromJson, jsonFromMd, isJsonContent]);
 
   const handleNewDocument = useCallback(() => {
     fullContentRef.current = '';
