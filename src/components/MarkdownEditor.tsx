@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Upload, ArrowUp } from 'lucide-react';
 import { useParseWorker } from '@/hooks/useParseWorker';
 import { useExtractWorker } from '@/hooks/useExtractWorker';
+import { useToast } from '@/hooks/useToast';
 
 import { ReadingModeModal } from '@/components/ReadingModeModal';
 import { EditorHeader } from '@/components/EditorHeader';
@@ -11,6 +12,8 @@ import { AppFooter } from '@/components/AppFooter';
 import { InputPanel } from '@/components/InputPanel';
 import { OutputPanel } from '@/components/OutputPanel';
 import { SplitDragHandle } from '@/components/SplitDragHandle';
+import { ToastContainer } from '@/components/Toast';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   updateDocument,
   getDocuments,
@@ -62,8 +65,15 @@ export default function MarkdownEditor() {
   const [showScrollTop, setShowScrollTop] = useState(false);
 
   const [fullscreenHtml, setFullscreenHtml] = useState<string | null>(null);
+  const [isReadingLoading, setIsReadingLoading] = useState(false);
   const runWorker = useParseWorker();
   const runExtract = useExtractWorker();
+  const { toasts, showToast, dismissToast } = useToast();
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    message: string;
+    onConfirm: () => void;
+  }>({ open: false, message: '', onConfirm: () => {} });
 
   const fullContentRef = useRef<string>('');
   const outputRef = useRef<HTMLDivElement>(null);
@@ -335,7 +345,7 @@ export default function MarkdownEditor() {
         setIsNewDocument(true);
       } catch (err: any) {
         console.error('Extraction error:', err);
-        alert(`Failed to extract document: ${err.message}`);
+        showToast(`Failed to extract document: ${err.message}`, 'error');
       } finally {
         setIsProcessing(false);
       }
@@ -467,30 +477,72 @@ export default function MarkdownEditor() {
   }, [runWorker, runExtract]);
 
 
-  const handleExportPDF = useCallback(async () => {
-    const content = fullContentRef.current || markdown;
-    if (!content.trim()) {
-      alert('Cannot export empty document');
+  const handleDownload = useCallback(async (format: 'md' | 'json' | 'toon' | 'pdf') => {
+    const fullContent = fullContentRef.current || markdown;
+    if (!fullContent.trim()) {
+      showToast('Cannot download empty document', 'warning');
       return;
     }
 
-    try {
-      let html: string;
-      if (isJsonContent) {
-        const md = await runWorker<string>('JSON_TO_MD', content);
-        html = await runWorker<string>('MD_PARSE', { content: md, format: 'markdown' });
-      } else {
-        html = await runWorker<string>('MD_PARSE', { content, format: 'markdown' });
-      }
+    const baseName = documentName.replace(/\.[^.]+$/, '').replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
 
-      const { exportPDF } = await import('@/lib/pdf');
-      const filename = documentName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      await exportPDF(filename, html, documentName);
-    } catch (error) {
-      console.error('Error exporting PDF:', error);
-      alert('Error exporting PDF');
+    // PDF export
+    if (format === 'pdf') {
+      try {
+        let html: string;
+        if (isJsonContent) {
+          const md = await runWorker<string>('JSON_TO_MD', fullContent);
+          html = await runWorker<string>('MD_PARSE', { content: md, format: 'markdown' });
+        } else {
+          html = await runWorker<string>('MD_PARSE', { content: fullContent, format: 'markdown' });
+        }
+        const { exportPDF } = await import('@/lib/pdf');
+        await exportPDF(baseName, html, documentName);
+        showToast(`Exported ${baseName}.pdf`, 'success');
+      } catch (error) {
+        console.error('Error exporting PDF:', error);
+        showToast('Error exporting PDF', 'error');
+      }
+      return;
     }
-  }, [markdown, isJsonContent, documentName, runWorker]);
+
+    // Text-based downloads
+    let text = '';
+    let ext = `.${format}`;
+    let mimeType = 'text/plain';
+
+    if (format === 'json') {
+      mimeType = 'application/json';
+      if (isJsonContent && parsedJson) {
+        text = JSON.stringify(parsedJson, null, 2);
+      } else {
+        text = jsonFromMd || fullContent;
+      }
+    } else if (format === 'toon') {
+      text = toonOutput;
+    } else {
+      // md
+      mimeType = 'text/markdown';
+      text = isJsonContent ? mdFromJson : fullContent;
+    }
+
+    if (!text.trim()) {
+      showToast('Nothing to download', 'warning');
+      return;
+    }
+
+    const fileName = `${baseName}${ext}`;
+    const blob = new Blob([text], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast(`Downloaded ${fileName}`, 'success');
+  }, [markdown, parsedJson, toonOutput, mdFromJson, jsonFromMd, isJsonContent, documentName, runWorker, showToast]);
 
   const handleCopyOutput = useCallback(async () => {
     const fullContent = fullContentRef.current || markdown;
@@ -508,7 +560,7 @@ export default function MarkdownEditor() {
     }
 
     if (!text.trim()) {
-      alert('Nothing to copy');
+      showToast('Nothing to copy', 'warning');
       return;
     }
 
@@ -518,7 +570,7 @@ export default function MarkdownEditor() {
       setTimeout(() => setIsCopied(false), 2000);
     } catch (error) {
       console.error('Error copying to clipboard:', error);
-      alert('Failed to copy');
+      showToast('Failed to copy', 'error');
     }
   }, [markdown, outputTab, parsedJson, toonOutput, mdFromJson, isJsonContent]);
 
@@ -542,27 +594,101 @@ export default function MarkdownEditor() {
   }, [setContentWithTruncation]);
 
   const handleDeleteDocument = useCallback((docId: string) => {
-    if (confirm('Are you sure you want to delete this document?')) {
-      deleteDocument(docId);
-      setDocuments(getDocuments());
-      if (currentDocId === docId) {
-        handleNewDocument();
-      }
-    }
-  }, [currentDocId, handleNewDocument]);
+    setConfirmState({
+      open: true,
+      message: 'Are you sure you want to delete this document?',
+      onConfirm: () => {
+        deleteDocument(docId);
+        setDocuments(getDocuments());
+        if (currentDocId === docId) {
+          handleNewDocument();
+        }
+        setConfirmState(prev => ({ ...prev, open: false }));
+        showToast('Document deleted', 'success');
+      },
+    });
+  }, [currentDocId, handleNewDocument, showToast]);
+
+  const CHUNK_LINE_TARGET = 200;
 
   const handleReadingMode = useCallback(async () => {
     setIsFullscreen(true);
+    setFullscreenHtml(null);
+
     if (!isJsonContent) {
       const content = fullContentRef.current || markdown;
+      const lines = content.split('\n');
+
+      if (lines.length <= CHUNK_LINE_TARGET) {
+        // Small file — load all at once
+        try {
+          const html = await runWorker<string>('MD_PARSE', { content, format: 'markdown' });
+          setFullscreenHtml(html);
+        } catch {
+          setFullscreenHtml(htmlPreview);
+        }
+        return;
+      }
+
+      // Large file — split at safe boundaries (blank lines outside tables/code blocks)
+      setIsReadingLoading(true);
+      let accumulatedHtml = '';
+
+      // Build chunks respecting block structure
+      const chunks: string[] = [];
+      let currentChunk: string[] = [];
+      let inCodeBlock = false;
+      let inTable = false;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+
+        // Track code blocks
+        if (trimmed.startsWith('```')) {
+          inCodeBlock = !inCodeBlock;
+        }
+
+        // Track tables (line with | that follows a separator or header)
+        if (!inCodeBlock) {
+          if (trimmed.includes('|') && trimmed.length > 1) {
+            inTable = true;
+          } else if (trimmed === '') {
+            inTable = false;
+          }
+        }
+
+        currentChunk.push(line);
+
+        // Safe to split: blank line, not in code block, not in table, chunk big enough
+        const isSafeBoundary = trimmed === '' && !inCodeBlock && !inTable;
+        if (isSafeBoundary && currentChunk.length >= CHUNK_LINE_TARGET) {
+          chunks.push(currentChunk.join('\n'));
+          currentChunk = [];
+        }
+      }
+      // Flush remaining
+      if (currentChunk.length > 0) {
+        chunks.push(currentChunk.join('\n'));
+      }
+
       try {
-        const html = await runWorker<string>('MD_PARSE', { content, format: 'markdown' });
-        setFullscreenHtml(html);
+        for (const chunk of chunks) {
+          const chunkHtml = await runWorker<string>('MD_PARSE', { content: chunk, format: 'markdown' });
+          accumulatedHtml += chunkHtml;
+          setFullscreenHtml(accumulatedHtml);
+        }
+        showToast('Content loaded successfully', 'success');
       } catch {
-        setFullscreenHtml(htmlPreview);
+        if (!accumulatedHtml) {
+          setFullscreenHtml(htmlPreview);
+        }
+        showToast('Some content may not have loaded', 'warning');
+      } finally {
+        setIsReadingLoading(false);
       }
     }
-  }, [isJsonContent, markdown, htmlPreview, runWorker]);
+  }, [isJsonContent, markdown, htmlPreview, runWorker, showToast]);
 
   const handlePrint = useCallback(async () => {
     let html = htmlPreview;
@@ -684,7 +810,7 @@ export default function MarkdownEditor() {
                 toc={toc}
                 isCopied={isCopied}
                 handleCopyOutput={handleCopyOutput}
-                handleExportPDF={handleExportPDF}
+                handleDownload={handleDownload}
                 handleReadingMode={handleReadingMode}
                 handlePrint={handlePrint}
                 previewTruncation={previewTruncation}
@@ -726,10 +852,22 @@ export default function MarkdownEditor() {
           mdFromJsonHtml={mdFromJsonHtml}
           fullscreenHtml={fullscreenHtml}
           showScrollTop={showScrollTop}
-          onClose={() => { setIsFullscreen(false); setFullscreenHtml(null); }}
+          isLoading={isReadingLoading}
+          onClose={() => { setIsFullscreen(false); setFullscreenHtml(null); setIsReadingLoading(false); }}
           onScroll={(scrollTop) => setShowScrollTop(scrollTop > 300)}
         />
       )}
+
+      {/* Toast notifications */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+
+      {/* Confirm dialog */}
+      <ConfirmDialog
+        open={confirmState.open}
+        message={confirmState.message}
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState(prev => ({ ...prev, open: false }))}
+      />
     </div>
   );
 }

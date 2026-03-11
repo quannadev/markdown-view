@@ -3,8 +3,8 @@
 import { useRouter } from 'next/navigation';
 import { AppFooter } from '@/components/AppFooter';
 import {
-  FileText, FileJson, Upload, Eye, Copy, FileDown,
-  Zap, Table, Code, BookOpen, ArrowRight, Type, Hash
+  FileText, FileJson, Upload, Eye, Copy, Download,
+  Zap, Table, Code, BookOpen, ArrowRight, Type, Hash, Bell
 } from 'lucide-react';
 
 const features = [
@@ -36,7 +36,7 @@ const features = [
   {
     icon: Eye,
     title: 'Reading Mode',
-    description: 'Distraction-free fullscreen reading for focused content consumption.',
+    description: 'Distraction-free fullscreen reading with progressive chunked loading for large files. Press ESC to exit.',
   },
   {
     icon: Copy,
@@ -44,9 +44,9 @@ const features = [
     description: 'Copy rendered content to clipboard — great for emails, docs, or chat apps.',
   },
   {
-    icon: FileDown,
-    title: 'PDF Export & Print',
-    description: 'Export as PDF or print your rendered Markdown with a single click.',
+    icon: Download,
+    title: 'Download & Export',
+    description: 'Download as .md, .json, or .pdf from a single dropdown — context-aware based on active view.',
   },
   {
     icon: Table,
@@ -67,6 +67,11 @@ const features = [
     icon: Hash,
     title: 'Content Statistics',
     description: 'Character, word, line count, and GPT token estimation in real time.',
+  },
+  {
+    icon: Bell,
+    title: 'Toast Notifications',
+    description: 'Non-intrusive toast alerts for actions like copy, download, and errors — no more browser popups.',
   },
 ];
 

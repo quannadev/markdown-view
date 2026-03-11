@@ -1,5 +1,5 @@
-import { RefObject, ReactNode } from 'react';
-import { Book, Copy, Check, FileDown, Maximize2, Printer, AlertTriangle } from 'lucide-react';
+import { RefObject, useState } from 'react';
+import { Book, Copy, Check, Download, Maximize2, Printer, AlertTriangle, ChevronDown } from 'lucide-react';
 import { TreeNodeView } from '@/components/TreeNodeView';
 import { TreeNode } from '@/lib/json';
 
@@ -15,7 +15,7 @@ interface OutputPanelProps {
   toc: { id: string; text: string; level: number }[];
   isCopied: boolean;
   handleCopyOutput: () => void;
-  handleExportPDF: () => void;
+  handleDownload: (format: 'md' | 'json' | 'toon' | 'pdf') => void;
   handleReadingMode: () => void;
   handlePrint: () => void;
   previewTruncation: { isTruncated: boolean; totalLines: number };
@@ -44,7 +44,7 @@ export function OutputPanel({
   toc,
   isCopied,
   handleCopyOutput,
-  handleExportPDF,
+  handleDownload,
   handleReadingMode,
   handlePrint,
   previewTruncation,
@@ -60,6 +60,7 @@ export function OutputPanel({
   toonOutput,
   jsonFromMd,
 }: OutputPanelProps) {
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
 
   const renderOutput = () => {
     if (outputTab === 'md') {
@@ -169,13 +170,43 @@ export function OutputPanel({
           >
             {isCopied ? <Check size={16} /> : <Copy size={16} />}
           </button>
-          <button
-            onClick={handleExportPDF}
-            className="p-1.5 text-gray-400 hover:text-gray-700 rounded transition"
-            title="Export PDF"
-          >
-            <FileDown size={16} />
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowDownloadMenu(!showDownloadMenu)}
+              className="flex items-center gap-0.5 p-1.5 text-gray-400 hover:text-gray-700 rounded transition"
+              title="Download"
+            >
+              <Download size={16} />
+              <ChevronDown size={12} />
+            </button>
+            {showDownloadMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowDownloadMenu(false)} />
+                <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1 min-w-[140px]">
+                  {(() => {
+                    const items: { label: string; format: 'md' | 'json' | 'toon' | 'pdf' }[] = [];
+                    if (outputTab === 'json' || outputTab === 'formatted') {
+                      items.push({ label: 'JSON (.json)', format: 'json' });
+                    } else if (outputTab === 'toon') {
+                      items.push({ label: 'TOON (.toon)', format: 'toon' });
+                    } else {
+                      items.push({ label: 'Markdown (.md)', format: 'md' });
+                    }
+                    items.push({ label: 'PDF (.pdf)', format: 'pdf' });
+                    return items;
+                  })().map((item) => (
+                    <button
+                      key={item.format}
+                      onClick={() => { handleDownload(item.format); setShowDownloadMenu(false); }}
+                      className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           {outputTab === 'md' && (
             <button
               onClick={handleReadingMode}
