@@ -1,10 +1,12 @@
-import { Minimize2, ArrowUp } from 'lucide-react';
+import { useEffect } from 'react';
+import { Minimize2, ArrowUp, Loader2 } from 'lucide-react';
 
 interface ReadingModeModalProps {
   isJsonContent: boolean;
   mdFromJsonHtml: string;
   fullscreenHtml: string | null;
   showScrollTop: boolean;
+  isLoading?: boolean;
   onClose: () => void;
   onScroll: (scrollTop: number) => void;
 }
@@ -14,13 +16,30 @@ export function ReadingModeModal({
   mdFromJsonHtml,
   fullscreenHtml,
   showScrollTop,
+  isLoading = false,
   onClose,
   onScroll,
 }: ReadingModeModalProps) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   return (
     <div className="fixed inset-0 z-50 bg-white overflow-hidden flex flex-col">
       <div className="flex-shrink-0 border-b border-gray-200 px-5 py-2 flex justify-between items-center">
-        <h2 className="text-sm font-semibold text-gray-700">Reading Mode</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-gray-700">Reading Mode</h2>
+          {isLoading && (
+            <div className="flex items-center gap-1.5 text-xs text-gray-400">
+              <Loader2 size={14} className="animate-spin" />
+              <span>Loading...</span>
+            </div>
+          )}
+        </div>
         <button
           onClick={onClose}
           className="p-1.5 text-gray-400 hover:text-gray-700 rounded transition"
@@ -29,6 +48,12 @@ export function ReadingModeModal({
           <Minimize2 size={18} />
         </button>
       </div>
+      {/* Loading progress bar */}
+      {isLoading && (
+        <div className="flex-shrink-0 h-0.5 bg-gray-100 overflow-hidden">
+          <div className="h-full bg-blue-400 animate-progress-bar" />
+        </div>
+      )}
       <div
         className="flex-1 overflow-auto px-5 py-4 relative"
         onScroll={(e) => onScroll(e.currentTarget.scrollTop)}
@@ -48,7 +73,10 @@ export function ReadingModeModal({
             dangerouslySetInnerHTML={{ __html: fullscreenHtml }}
           />
         ) : (
-          <div className="text-gray-400 text-center py-20">Loading full content...</div>
+          <div className="text-gray-400 text-center py-20 flex flex-col items-center gap-2">
+            <Loader2 size={24} className="animate-spin text-gray-300" />
+            <span>Loading full content...</span>
+          </div>
         )}
         {showScrollTop && (
           <button
